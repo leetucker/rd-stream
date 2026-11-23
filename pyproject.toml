@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rd-stream"
+version = "0.1.0.dev0"
+description = "Regression discontinuity with robust bias-corrected inference on large data: rdrobust's estimates from one sort and compiled, threaded passes"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.md"]
+authors = [{ name = "Lee Tucker" }]
+keywords = ["econometrics", "regression discontinuity", "rdrobust", "local polynomial",
+            "bandwidth selection", "robust bias correction", "out-of-core"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering",
+    "Typing :: Typed",
+]
+requires-python = ">=3.10"
+dependencies = [
+    # result base classes, reporting, source handling (hdfe_stream.core's stable names)
+    "hdfe-stream>=0.12.0",
+    "stream-limits>=0.3.0",
+    "polars>=1.37,!=1.41.*",
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "numba>=0.60",
+    "pyarrow>=16.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/leetucker/rd-stream"
+Source = "https://github.com/leetucker/rd-stream"
+Issues = "https://github.com/leetucker/rd-stream/issues"
+
+[project.optional-dependencies]
+benchmark = ["matplotlib>=3.7", "psutil>=5.9", "rdrobust>=2.1.1", "diff-diff>=4.0"]
+docs = ["sphinx>=8.0", "myst-parser>=4.0", "furo>=2024.8.6", "sphinx-copybutton>=0.5",
+        "sphinx-design>=0.6"]
+plot = ["matplotlib>=3.7"]
+test = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["rd_stream*"]
+
+[tool.setuptools.package-data]
+rd_stream = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "E731"]

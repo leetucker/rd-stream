@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+*.nbc
+*.nbi
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+docs/_build/
+*.bak
+# the sibling packages do not track it either
+uv.lock
+
+# simulated data
+benchmarks/gate/data/
+benchmarks/data/
+
+# run logs and results carry the paths and state of the machine they ran on
+*.log
+*.stdout
+*.stderr
+benchmarks/gate/results/
+
+# working notes for the sessions that build the package, kept locally
+PLAN.md
+DECISIONS.md
+benchmarks/gate/GATE_RESULTS.md
+
+# local configuration of R for the comparisons (see r_config.example.toml)
+r_config.toml

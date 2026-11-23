@@ -1,0 +1,14 @@
+# How the reference tests (tests/) and the prototype's comparisons run R.
+# Copy this file to r_config.toml (which is not tracked) and edit it there.
+# Without either, R is `Rscript` on the PATH, and the comparisons with R are
+# skipped if there is none. The environment variables RD_RSCRIPT and
+# RD_R_LIBS take precedence over the file.
+#
+# The R packages the comparisons use: rdrobust (4.1.1), arrow, jsonlite.
+
+# The command that runs an R script: a program, or a list of words, e.g.
+#   rscript = ["micromamba", "run", "-p", "/path/to/env", "Rscript"]
+rscript = "Rscript"
+
+# A directory of R packages to add to the library path (R_LIBS_USER); optional.
+r_libs = ""

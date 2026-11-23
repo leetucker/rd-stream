@@ -1,0 +1,490 @@
+[
+ {
+  "name": "senate_default",
+  "data": "senate"
+ },
+ {
+  "name": "senate_all_selectors",
+  "data": "senate",
+  "all": true
+ },
+ {
+  "name": "sim_default",
+  "data": "sim"
+ },
+ {
+  "name": "sim_all_selectors",
+  "data": "sim",
+  "all": true
+ },
+ {
+  "name": "sim_epanechnikov",
+  "data": "sim",
+  "kernel": "epanechnikov"
+ },
+ {
+  "name": "sim_epanechnikov_hc2",
+  "data": "sim",
+  "kernel": "epanechnikov",
+  "vce": "hc2"
+ },
+ {
+  "name": "sim_uniform",
+  "data": "sim",
+  "kernel": "uniform"
+ },
+ {
+  "name": "sim_uniform_hc2",
+  "data": "sim",
+  "kernel": "uniform",
+  "vce": "hc2"
+ },
+ {
+  "name": "sim_hc0",
+  "data": "sim",
+  "vce": "hc0"
+ },
+ {
+  "name": "sim_hc1",
+  "data": "sim",
+  "vce": "hc1"
+ },
+ {
+  "name": "sim_hc2",
+  "data": "sim",
+  "vce": "hc2"
+ },
+ {
+  "name": "sim_hc3",
+  "data": "sim",
+  "vce": "hc3"
+ },
+ {
+  "name": "sim_msetwo",
+  "data": "sim",
+  "bwselect": "msetwo"
+ },
+ {
+  "name": "sim_msesum",
+  "data": "sim",
+  "bwselect": "msesum"
+ },
+ {
+  "name": "sim_msecomb1",
+  "data": "sim",
+  "bwselect": "msecomb1"
+ },
+ {
+  "name": "sim_msecomb2",
+  "data": "sim",
+  "bwselect": "msecomb2"
+ },
+ {
+  "name": "sim_cerrd",
+  "data": "sim",
+  "bwselect": "cerrd"
+ },
+ {
+  "name": "sim_certwo",
+  "data": "sim",
+  "bwselect": "certwo"
+ },
+ {
+  "name": "sim_cersum",
+  "data": "sim",
+  "bwselect": "cersum"
+ },
+ {
+  "name": "sim_cercomb1",
+  "data": "sim",
+  "bwselect": "cercomb1"
+ },
+ {
+  "name": "sim_cercomb2",
+  "data": "sim",
+  "bwselect": "cercomb2"
+ },
+ {
+  "name": "sim_p2",
+  "data": "sim",
+  "p": 2
+ },
+ {
+  "name": "sim_p0",
+  "data": "sim",
+  "p": 0
+ },
+ {
+  "name": "sim_p1_q3",
+  "data": "sim",
+  "p": 1,
+  "q": 3
+ },
+ {
+  "name": "sim_kink",
+  "data": "sim",
+  "p": 2,
+  "deriv": 1
+ },
+ {
+  "name": "sim_kink_p1",
+  "data": "sim",
+  "p": 1,
+  "deriv": 1
+ },
+ {
+  "name": "sim_bwcheck",
+  "data": "sim",
+  "bwcheck": 30
+ },
+ {
+  "name": "sim_nobwrestrict",
+  "data": "sim",
+  "bwrestrict": false
+ },
+ {
+  "name": "sim_nostdvars",
+  "data": "sim",
+  "stdvars": false
+ },
+ {
+  "name": "sim_scaleregul0",
+  "data": "sim",
+  "scaleregul": 0
+ },
+ {
+  "name": "sim_nnmatch5",
+  "data": "sim",
+  "nnmatch": 5
+ },
+ {
+  "name": "sim_manual_h",
+  "data": "sim",
+  "h": 0.2
+ },
+ {
+  "name": "sim_manual_hb",
+  "data": "sim",
+  "h": 0.2,
+  "b": 0.35
+ },
+ {
+  "name": "sim_manual_two",
+  "data": "sim",
+  "h": [
+   0.15,
+   0.25
+  ],
+  "b": [
+   0.3,
+   0.4
+  ]
+ },
+ {
+  "name": "sim_rho",
+  "data": "sim",
+  "rho": 0.5
+ },
+ {
+  "name": "sim_manual_rho",
+  "data": "sim",
+  "h": 0.2,
+  "rho": 0.8
+ },
+ {
+  "name": "sim_cutoff",
+  "data": "sim",
+  "c": 0.2,
+  "y": "y2"
+ },
+ {
+  "name": "sim_scalepar",
+  "data": "sim",
+  "scalepar": 2.5
+ },
+ {
+  "name": "sim_weights",
+  "data": "sim",
+  "weights": true
+ },
+ {
+  "name": "sim_weights_hc3",
+  "data": "sim",
+  "weights": true,
+  "vce": "hc3"
+ },
+ {
+  "name": "sim_cluster",
+  "data": "sim",
+  "cluster": true
+ },
+ {
+  "name": "sim_cluster_manual_hb",
+  "data": "sim",
+  "cluster": true,
+  "h": 0.2
+ },
+ {
+  "name": "sim_cluster_manual_h_b",
+  "data": "sim",
+  "cluster": true,
+  "h": 0.2,
+  "b": 0.3
+ },
+ {
+  "name": "sim_cluster_weights",
+  "data": "sim",
+  "cluster": true,
+  "weights": true
+ },
+ {
+  "name": "sim_cluster_msetwo",
+  "data": "sim",
+  "cluster": true,
+  "bwselect": "msetwo"
+ },
+ {
+  "name": "senate_cluster",
+  "data": "senate",
+  "cluster": true
+ },
+ {
+  "name": "senate_hc1",
+  "data": "senate",
+  "vce": "hc1"
+ },
+ {
+  "name": "discrete_default",
+  "data": "sim",
+  "x": "xd"
+ },
+ {
+  "name": "discrete_vcehc1",
+  "data": "sim",
+  "x": "xd",
+  "vce": "hc1"
+ },
+ {
+  "name": "discrete_masspointsoff",
+  "data": "sim",
+  "x": "xd",
+  "masspoints": "off"
+ },
+ {
+  "name": "discrete_masspointscheck",
+  "data": "sim",
+  "x": "xd",
+  "masspoints": "check"
+ },
+ {
+  "name": "discrete_bwselectmsetwo",
+  "data": "sim",
+  "x": "xd",
+  "bwselect": "msetwo"
+ },
+ {
+  "name": "discrete_kerneluniform",
+  "data": "sim",
+  "x": "xd",
+  "kernel": "uniform"
+ },
+ {
+  "name": "discrete_p2",
+  "data": "sim",
+  "x": "xd",
+  "p": 2
+ },
+ {
+  "name": "discrete_bwcheck25",
+  "data": "sim",
+  "x": "xd",
+  "bwcheck": 25
+ },
+ {
+  "name": "discrete_cluster",
+  "data": "sim",
+  "x": "xd",
+  "cluster": true
+ },
+ {
+  "name": "discrete_all_selectors",
+  "data": "sim",
+  "x": "xd",
+  "all": true
+ },
+ {
+  "name": "fuzzy_default",
+  "data": "sim",
+  "fuzzy": "t"
+ },
+ {
+  "name": "fuzzy_hc2",
+  "data": "sim",
+  "fuzzy": "t",
+  "vce": "hc2"
+ },
+ {
+  "name": "fuzzy_cluster",
+  "data": "sim",
+  "fuzzy": "t",
+  "cluster": true
+ },
+ {
+  "name": "fuzzy_sharpbw",
+  "data": "sim",
+  "fuzzy": "t",
+  "sharpbw": true
+ },
+ {
+  "name": "fuzzy_one_sided",
+  "data": "sim",
+  "fuzzy": "t1"
+ },
+ {
+  "name": "fuzzy_msetwo_uniform",
+  "data": "sim",
+  "fuzzy": "t",
+  "bwselect": "msetwo",
+  "kernel": "uniform"
+ },
+ {
+  "name": "fuzzy_kink",
+  "data": "sim",
+  "fuzzy": "t",
+  "p": 2,
+  "deriv": 1
+ },
+ {
+  "name": "fuzzy_scalepar",
+  "data": "sim",
+  "fuzzy": "t",
+  "scalepar": 2.0
+ },
+ {
+  "name": "fuzzy_discrete",
+  "data": "sim",
+  "fuzzy": "t",
+  "x": "xd"
+ },
+ {
+  "name": "fuzzy_discrete_hc1",
+  "data": "sim",
+  "fuzzy": "t",
+  "x": "xd",
+  "vce": "hc1"
+ },
+ {
+  "name": "fuzzy_weights",
+  "data": "sim",
+  "fuzzy": "t",
+  "weights": true
+ },
+ {
+  "name": "covs_default",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ]
+ },
+ {
+  "name": "covs_hc3",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "vce": "hc3"
+ },
+ {
+  "name": "covs_cluster",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "cluster": true
+ },
+ {
+  "name": "covs_msetwo",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "bwselect": "msetwo"
+ },
+ {
+  "name": "covs_collinear",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2",
+   "z3"
+  ]
+ },
+ {
+  "name": "covs_fuzzy",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "fuzzy": "t"
+ },
+ {
+  "name": "covs_fuzzy_sharpbw",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "fuzzy": "t",
+  "sharpbw": true
+ },
+ {
+  "name": "covs_fuzzy_one_sided",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "fuzzy": "t1"
+ },
+ {
+  "name": "covs_discrete",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "x": "xd"
+ },
+ {
+  "name": "covs_kink",
+  "data": "sim",
+  "covs": [
+   "z1"
+  ],
+  "p": 2,
+  "deriv": 1
+ },
+ {
+  "name": "covs_weights",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "weights": true
+ },
+ {
+  "name": "covs_all_selectors",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "all": true
+ }
+]
