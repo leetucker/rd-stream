@@ -15,7 +15,7 @@ of the running variable with their counts:
   order;
 - the bins: contiguous runs of the sorted rows.
 
-The spacings estimators need the rows in order, so they need the in-memory
+The spacings estimators need the rows in order, so they need the rows
 path; the polynomial-regression ones (the "pr" variants, which
 ``mass_points="adjust"`` switches to when the running variable has mass
 points) also work by value.
@@ -279,7 +279,7 @@ class RDPlot:
     kernel: str
     ci: float
     covariate_coef: np.ndarray | None = None
-    memory: str = "in_memory"
+    memory: str = "rows"
     timings: dict = field(default_factory=dict)
 
     def plot(self, *, ax=None, ci: bool = False, shade: bool = False, title: str | None = None,
@@ -332,6 +332,85 @@ class RDPlot:
         return fig
 
 
+class RDPlotMulti:
+    """rd_plot's result for several outcomes, from one read and sort of the
+    data: an `RDPlot` per outcome, each with its own bins. Iterate over it,
+    take one by outcome or position (``plots["y2"]``, ``plots[0]``), or draw
+    them side by side with `plot()`; ``len()`` counts them."""
+
+    def __init__(self, plots):
+        self.all_plots = {p.outcome: p for p in plots}
+
+    def __len__(self):
+        return len(self.all_plots)
+
+    def __iter__(self):
+        return iter(self.all_plots.values())
+
+    def __getitem__(self, key):
+        if isinstance(key, (int, np.integer)):
+            return list(self.all_plots.values())[key]
+        return self.all_plots[key]
+
+    @property
+    def outcomes(self) -> list:
+        return list(self.all_plots)
+
+    def plot(self, *, outcomes: Sequence[str] | None = None, ncols: int = 2,
+             panel_size: tuple = (5.0, 3.5), sharex: bool = True, ci: bool = False,
+             shade: bool = False, xlabel: str | None = None, titles: bool = True,
+             color_points="C0", color_lines="C3"):
+        """Draw the outcomes as small multiples: a panel each, `ncols` to a
+        row, with a shared x axis (`sharex`) and each outcome's own y axis.
+        Needs matplotlib (``pip install rd-stream[plot]``).
+
+        Parameters
+        ----------
+        outcomes : list of str, optional
+            The outcomes to draw, in this order; default all.
+        ncols : int, default 2
+        panel_size : (width, height), default (5, 3.5)
+            Inches per panel.
+        sharex : bool, default True
+        ci, shade, color_points, color_lines
+            As in `RDPlot.plot`.
+        xlabel : str, optional
+            Default: the running variable, under the bottom row.
+        titles : bool, default True
+            Each panel titled by its outcome (its y axis is then unlabeled).
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+        """
+        import matplotlib.pyplot as plt
+
+        names = list(self.all_plots) if outcomes is None else list(outcomes)
+        unknown = [n for n in names if n not in self.all_plots]
+        if unknown:
+            raise ValueError(f"no plot for outcome(s) {unknown}; there are {self.outcomes}")
+        if not names:
+            raise ValueError("outcomes is empty")
+        ncols = max(1, min(int(ncols), len(names)))
+        nrows = math.ceil(len(names) / ncols)
+        fig, axes = plt.subplots(nrows, ncols, sharex=sharex, squeeze=False,
+                                 figsize=(panel_size[0] * ncols, panel_size[1] * nrows))
+        for i, name in enumerate(names):
+            ax = axes[i // ncols][i % ncols]
+            p = self.all_plots[name]
+            last_row = i + ncols >= len(names)       # no panel below this one
+            p.plot(ax=ax, ci=ci, shade=shade, title=name if titles else None,
+                   xlabel=(xlabel if xlabel is not None else p.running) if last_row else "",
+                   ylabel="" if titles else name, color_points=color_points,
+                   color_lines=color_lines)
+            if last_row:              # above an empty slot, the shared axis's labels too
+                ax.xaxis.set_tick_params(labelbottom=True)
+        for j in range(len(names), nrows * ncols):
+            axes[j // ncols][j % ncols].set_visible(False)
+        fig.tight_layout()
+        return fig
+
+
 # ---------------------------------------------------------------------------
 # the entry point
 
@@ -353,7 +432,7 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
             support=None, mass_points: str = "adjust", ci: float = 95.0,
             memory: str = "auto", max_memory_gb: float | None = None,
             memory_reserve: float | None = None, n_threads: int | None = None,
-            profile: bool = False) -> RDPlot:
+            profile: bool = False) -> RDPlot | RDPlotMulti:
     """RD plot data, as R's rdplot computes them: the outcome's means in bins
     of the running variable on each side of the cutoff, and a global
     polynomial fit on each side. Draw it with ``.plot()``.
@@ -361,7 +440,9 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
     Parameters
     ----------
     fml : str
-        ``"y ~ x"``: the outcome and the running variable.
+        ``"y ~ x"``: the outcome and the running variable; several outcomes
+        as ``"y1 + y2 ~ x"``, from one read and sort, each with its own bins
+        and fit (on its own complete rows).
     data : str, path, polars.DataFrame or polars.LazyFrame
     cutoff : float, default 0
     polynomial_order : int, default 4
@@ -396,23 +477,22 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
         Extends the range the bins cover (rdplot's ``support``).
     mass_points : {"adjust", "check", "off"}
     ci : float, default 95
-        The level of the bins' intervals, in percent (95, not 0.95).
+        The level of the bins' intervals: in percent (95), or as a fraction
+        below 1 (0.95), which is the same.
     memory, max_memory_gb, memory_reserve, n_threads, profile
         As in `rd_estimate`. The by-value path takes the "pr" bin methods
         only.
 
     Returns
     -------
-    RDPlot, or a Profile with ``profile=True``.
+    RDPlot, RDPlotMulti with several outcomes, or a Profile with
+    ``profile=True``.
     """
     import time
 
     from . import api
 
     outcomes, running = api._parse(fml)
-    if len(outcomes) != 1:
-        raise ValueError("rd_plot takes one outcome")
-    y_name = outcomes[0]
     p = int(polynomial_order)
     if p < 0:
         raise ValueError("polynomial_order must be 0 or more")
@@ -424,8 +504,11 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
         raise ValueError("mass_points must be 'adjust', 'check' or 'off'")
     if covariates_at not in ("mean", "zero"):
         raise ValueError("covariates_at must be 'mean' or 'zero'")
-    if not 1 < ci < 100:
-        raise ValueError(f"ci is a level in percent, such as 95, between 1 and 100 (not {ci})")
+    ci = float(ci)
+    if 0 < ci < 1:
+        ci *= 100.0
+    if not 0 < ci < 100:
+        raise ValueError(f"ci is a level in percent (95) or as a fraction (0.95), not {ci}")
     scale = _pair(bin_scale, "bin_scale") or (1.0, 1.0)
     nbins = _pair(n_bins, "n_bins")
     if nbins is not None:
@@ -435,22 +518,30 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
     kern = _KERNELS[kernel]
     c = float(cutoff)
 
-    path = api._memory_path(data, running, outcomes, None, weights, None, covs, "auto", memory,
+    # the spacings bin methods need the rows, unless mass points switch them to "pr"
+    # (mass_points="adjust", which a running variable "auto" groups by value always has)
+    by_value_ok = memory != "auto" or bin_method.endswith("pr") or mass_points == "adjust"
+    path = api._memory_path(data, running, outcomes, None, weights, None, covs,
+                            "auto" if by_value_ok else "never", memory,
                             max_memory_gb, memory_reserve, n_threads, profile, "rd_plot")
     if profile:
         return path
-    t0 = time.perf_counter()
     with api._threads(n_threads):
         d = api._Data(data, running, outcomes, None, weights, None, covs, memory=path)
-        sides = _plot_sides(d, y_name, covs, c)
-        t1 = time.perf_counter()
-        out = _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern, kernel,
-                       h_given, covs, covariates_at, support, mass_points, ci)
-    out.memory = path
-    out.timings = dict(read_sort_s=d.read_sort_s, prepare_s=t1 - t0 - d.read_sort_s,
-                       plot_s=time.perf_counter() - t1)
+        read_s = d.read_sort_s
+        plots = []
+        for y_name in outcomes:
+            t1 = time.perf_counter()
+            sides = _plot_sides(d, y_name, covs, c)
+            t2 = time.perf_counter()
+            out = _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern,
+                           kernel, h_given, covs, covariates_at, support, mass_points, ci)
+            out.memory = path
+            out.timings = dict(read_sort_s=read_s, prepare_s=t2 - t1,
+                               plot_s=time.perf_counter() - t2)
+            plots.append(out)
     api._PREPARED.clear()
-    return out
+    return plots[0] if len(plots) == 1 else RDPlotMulti(plots)
 
 
 @dataclass
@@ -555,7 +646,7 @@ def _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern, kerne
                 method += "pr"
     if not method.endswith("pr") and L.cnt is not None and nbins is None:
         raise ValueError(f"bin_method={method!r} (spacings estimators) needs the rows in order: "
-                         "use memory='in_memory', or a 'pr' bin method")
+                         "use memory='rows', or a 'pr' bin method")
 
     # the global polynomial of order p, weighted by the kernel at h
     h = h_given or (range_l, range_r)

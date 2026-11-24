@@ -61,9 +61,9 @@ KW = [{}, {"vcov": "HC1"}, {"vcov": {"CRV1": "cl"}}, {"vcov": {"CRV2": "cl"}},
 
 @pytest.mark.parametrize("x", ["x", "xd"])
 @pytest.mark.parametrize("kw", KW, ids=[str(k) for k in KW])
-def test_matches_in_memory(kw, x, narrow):
+def test_matches_rows(kw, x, narrow):
     a = rd.rd_estimate(f"y + y2 ~ {x}", SIM, memory="window", **kw)
-    b = rd.rd_estimate(f"y + y2 ~ {x}", SIM, memory="in_memory", **kw)
+    b = rd.rd_estimate(f"y + y2 ~ {x}", SIM, memory="rows", **kw)
     _agree(a, b)
     assert len(narrow["reads"]) >= 2          # read again further out
     assert narrow["full"] > 0                 # C_d's range fit from the power sums
@@ -71,14 +71,14 @@ def test_matches_in_memory(kw, x, narrow):
 
 def test_given_bandwidths_are_identical(narrow):
     a = rd.rd_estimate("y + y2 ~ x", SIM, memory="window", bandwidth=[0.2, 0.3, (0.25, 0.4)])
-    b = rd.rd_estimate("y + y2 ~ x", SIM, memory="in_memory", bandwidth=[0.2, 0.3, (0.25, 0.4)])
+    b = rd.rd_estimate("y + y2 ~ x", SIM, memory="rows", bandwidth=[0.2, 0.3, (0.25, 0.4)])
     _agree(a, b, rtol=0)
     assert len(narrow["reads"]) == 1          # out to the widest bandwidth, once
 
 
 def test_rd_bandwidth_all_selectors(narrow):
     a = rd.rd_bandwidth("y ~ x", SIM, memory="window", all_selectors=True).table
-    b = rd.rd_bandwidth("y ~ x", SIM, memory="in_memory", all_selectors=True).table
+    b = rd.rd_bandwidth("y ~ x", SIM, memory="rows", all_selectors=True).table
     for col in ("h_left", "h_right", "b_left", "b_right"):
         np.testing.assert_allclose(a[col].to_numpy(), b[col].to_numpy(), rtol=1e-8)
 
@@ -90,7 +90,7 @@ def test_missing_values_per_outcome(narrow):
                           y=pl.when(pl.Series(holes[::-1])).then(float("nan"))
                           .otherwise(pl.col("y")))
     _agree(rd.rd_estimate("y + y2 ~ x", dfm, memory="window", treatment="t"),
-           rd.rd_estimate("y + y2 ~ x", dfm, memory="in_memory", treatment="t"))
+           rd.rd_estimate("y + y2 ~ x", dfm, memory="rows", treatment="t"))
 
 
 @pytest.mark.parametrize("n", [4000, 4001, 4003])
@@ -154,9 +154,9 @@ SLAB_KW = [{}, {"vcov": "HC1"}, {"vcov": "HC3"}, {"vcov": {"CRV1": "cl"}},
 
 @pytest.mark.parametrize("x", ["x", "xd"])
 @pytest.mark.parametrize("kw", SLAB_KW, ids=[str(k) for k in SLAB_KW])
-def test_slabs_match_in_memory(kw, x, slabs):
+def test_slabs_match_rows(kw, x, slabs):
     a = rd.rd_estimate(f"y + y2 ~ {x}", SIM, memory="window", workdir=slabs, **kw)
-    b = rd.rd_estimate(f"y + y2 ~ {x}", SIM, memory="in_memory", **kw)
+    b = rd.rd_estimate(f"y + y2 ~ {x}", SIM, memory="rows", **kw)
     _agree(a, b)
     assert not any(slabs.iterdir())             # the slabs are removed after the fit
 
@@ -165,9 +165,9 @@ def test_slabs_from_frames_and_bandwidths(slabs):
     df = pl.read_parquet(SIM)
     for data in (df, df.lazy()):
         _agree([rd.rd_estimate("y ~ x", data, memory="window", workdir=slabs)],
-               [rd.rd_estimate("y ~ x", SIM, memory="in_memory")])
+               [rd.rd_estimate("y ~ x", SIM, memory="rows")])
     a = rd.rd_bandwidth("y ~ x", SIM, memory="window", all_selectors=True, workdir=slabs).table
-    b = rd.rd_bandwidth("y ~ x", SIM, memory="in_memory", all_selectors=True).table
+    b = rd.rd_bandwidth("y ~ x", SIM, memory="rows", all_selectors=True).table
     for col in ("h_left", "h_right", "b_left", "b_right"):
         np.testing.assert_allclose(a[col].to_numpy(), b[col].to_numpy(), rtol=1e-8)
 
@@ -193,7 +193,7 @@ def test_distinct_counts_from_the_slabs(kw, x, monkeypatch, tmp_path):
 
     monkeypatch.setattr(_window.WindowData, "to_slabs", spy)
     a = rd.rd_estimate(f"y + y2 ~ {x}", dfm, memory="window", workdir=tmp_path, **kw)
-    b = rd.rd_estimate(f"y + y2 ~ {x}", dfm, memory="in_memory", **kw)
+    b = rd.rd_estimate(f"y + y2 ~ {x}", dfm, memory="rows", **kw)
     _agree(a, b)
     assert len(made) == 1 and len({k.split(":")[0] for k in made[0]}) == 2
 

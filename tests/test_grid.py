@@ -23,11 +23,16 @@ TOL = 1e-9
     ("y ~ x", {"covariates": ["z1", "z2"], "treatment": "t"}),
     ("y ~ x", {"weights": "w"}),
     ("y ~ x", {"bandwidth_ratio": 0.6}),
-    ("y ~ xd", {"collapse": "never"}),
-    ("y ~ xd", {"collapse": "always", "treatment": "t"}),
-    ("y ~ xd", {"collapse": "always", "covariates": ["z1"]}),
+    ("y ~ xd", {"memory": "rows"}),
+    ("y ~ xd", {"_collapsed": True, "treatment": "t"}),
+    ("y ~ xd", {"_collapsed": True, "covariates": ["z1"]}),
 ])
-def test_grid_matches_separate_fits(fml, kw):
+def test_grid_matches_separate_fits(fml, kw, monkeypatch):
+    kw = dict(kw)
+    if kw.pop("_collapsed", False):          # the rows held, collapsed to one per value
+        from rd_stream import _memory
+
+        monkeypatch.setattr(_memory, "_BY_VALUE", False)
     multi = rd.rd_estimate(fml, SIM, bandwidth=GRID, **kw)
     for r, h in zip(multi, GRID, strict=True):
         one = rd.rd_estimate(fml, SIM, bandwidth=h, **kw)

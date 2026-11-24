@@ -6,6 +6,7 @@ import warnings
 from pathlib import Path
 
 import numpy as np
+import polars as pl
 import pytest
 
 import rd_stream as rd
@@ -37,7 +38,7 @@ def _close(a, b):
 def _params():
     out = []
     for name, case in CASES.items():
-        out.append(pytest.param(name, "in_memory", id=f"{name}-rows"))
+        out.append(pytest.param(name, "rows", id=f"{name}-rows"))
         if case.get("x") == "xd" and not case.get("weights") and case.get("masspoints") != "off":
             out.append(pytest.param(name, "by_value", id=f"{name}-by_value"))
     return out
@@ -100,12 +101,46 @@ def test_spacings_need_the_rows():
 def test_plot_options_and_profile():
     with pytest.raises(ValueError, match="bin_method"):
         rd.rd_plot("y ~ x", SIM, bin_method="ik")
-    with pytest.raises(ValueError, match="one outcome"):
-        rd.rd_plot("y + y2 ~ x", SIM)
     with pytest.raises(ValueError, match="ci"):
-        rd.rd_plot("y ~ x", SIM, ci=0.95)
+        rd.rd_plot("y ~ x", SIM, ci=100)
+    a, b = rd.rd_plot("y ~ x", SIM, ci=0.9), rd.rd_plot("y ~ x", SIM, ci=90)
+    assert a.ci == b.ci == 90.0
+    assert a.bins.equals(b.bins)
     from hdfe_stream.core.profile import Profile
 
     assert isinstance(rd.rd_plot("y ~ x", SIM, profile=True), Profile)
     r = rd.rd_plot("y ~ x", SIM, covariates=["z1"], covariates_at="zero")
     assert r.covariate_coef.shape == (1, 1)
+
+
+@pytest.mark.parametrize("x,memory", [("x", "rows"), ("xd", "rows"), ("xd", "by_value")])
+def test_several_outcomes_match_single_calls(x, memory):
+    df = pl.read_parquet(SIM)
+    holes = np.random.default_rng(2).random(df.height) < 0.05
+    dfm = df.with_columns(y2=pl.when(pl.Series(holes)).then(None).otherwise(pl.col("y2")))
+    kw = {"memory": memory, "bin_method": "esmvpr"} if memory == "by_value" else {}
+    m = rd.rd_plot(f"y + y2 ~ {x}", dfm, **kw)
+    assert isinstance(m, rd.RDPlotMulti) and len(m) == 2 and m.outcomes == ["y", "y2"]
+    for name in ("y", "y2"):
+        one = rd.rd_plot(f"{name} ~ {x}", dfm, **kw)
+        assert m[name].bins.equals(one.bins) and m[name].fit.equals(one.fit)
+        assert m[name].n_bins == one.n_bins and m[name].memory == one.memory
+    assert m[1] is m["y2"] and [p.outcome for p in m] == ["y", "y2"]
+
+
+def test_several_outcomes_draw():
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    m = rd.rd_plot("y + y2 + z1 ~ x", SIM)
+    fig = m.plot(ci=True)                          # two columns: the fourth slot is empty
+    visible = [ax for ax in fig.axes if ax.get_visible()]
+    assert [ax.get_title() for ax in visible] == ["y", "y2", "z1"]
+    assert len(fig.axes) == 4 and visible[1].get_xlabel() == "x"
+    plt.close(fig)
+    fig = m.plot(outcomes=["y2"], ncols=3, titles=False)
+    assert len(fig.axes) == 1 and fig.axes[0].get_ylabel() == "y2"
+    plt.close(fig)
+    with pytest.raises(ValueError, match="no plot"):
+        m.plot(outcomes=["z"])

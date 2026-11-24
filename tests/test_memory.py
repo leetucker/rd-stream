@@ -17,23 +17,26 @@ SIM = Path(__file__).resolve().parent / "data" / "sim.parquet"
 @pytest.mark.parametrize("kw", [{}, {"vcov": "HC2"}, {"treatment": "t"},
                                 {"covariates": ["z1", "z2", "z3"], "treatment": "t"},
                                 {"bandwidth": [0.2, 0.4]}, {"polynomial_order": 2}])
-def test_by_value_matches_the_in_memory_collapse(kw):
+def test_by_value_matches_the_rows_collapsed(kw, monkeypatch):
     a = rd.rd_estimate("y + y2 ~ xd", SIM, memory="by_value", **kw)
-    b = rd.rd_estimate("y + y2 ~ xd", SIM, collapse="always", **kw)
+    monkeypatch.setattr(_memory, "_BY_VALUE", False)     # the rows held, collapsed
+    b = rd.rd_estimate("y + y2 ~ xd", SIM, **kw)
     for r1, r2 in zip(a, b, strict=True):
+        assert r2.memory == "rows" and r2.collapsed
         np.testing.assert_allclose(r1.beta, r2.beta, rtol=1e-10)
         np.testing.assert_allclose(r1.se, r2.se, rtol=1e-10)
         assert r1.memory == "by_value" and r1.collapsed
 
 
-def test_by_value_drops_missing_values_per_outcome():
+def test_by_value_drops_missing_values_per_outcome(monkeypatch):
     df = pl.read_parquet(SIM)
     holes = np.random.default_rng(0).random(df.height) < 0.05
     dfm = df.with_columns(y2=pl.when(pl.Series(holes)).then(None).otherwise(pl.col("y2")),
                           y=pl.when(pl.Series(holes[::-1])).then(float("nan"))
                           .otherwise(pl.col("y")))
     a = rd.rd_estimate("y + y2 ~ xd", dfm, memory="by_value")
-    b = rd.rd_estimate("y + y2 ~ xd", dfm, collapse="always")
+    monkeypatch.setattr(_memory, "_BY_VALUE", False)
+    b = rd.rd_estimate("y + y2 ~ xd", dfm)
     for r1, r2 in zip(a, b, strict=True):
         assert r1.n_obs == r2.n_obs
         np.testing.assert_allclose(r1.se, r2.se, rtol=1e-10)
@@ -63,9 +66,12 @@ def test_auto_groups_by_value_when_the_rows_do_not_fit(monkeypatch):
 
 def test_auto_groups_a_discrete_running_variable_by_value():
     assert rd.rd_estimate("y ~ xd", SIM).memory == "by_value"
-    assert rd.rd_estimate("y ~ x", SIM).memory == "in_memory"
-    assert rd.rd_estimate("y ~ xd", SIM, vcov={"CRV1": "cl"}).memory == "in_memory"
-    assert rd.rd_estimate("y ~ xd", SIM, collapse="never").memory == "in_memory"
+    assert rd.rd_estimate("y ~ x", SIM).memory == "rows"
+    assert rd.rd_estimate("y ~ xd", SIM, vcov={"CRV1": "cl"}).memory == "rows"
+    r = rd.rd_estimate("y ~ xd", SIM, memory="rows")
+    assert r.memory == "rows" and not r.collapsed
+    with pytest.raises(ValueError, match="memory must be"):
+        rd.rd_estimate("y ~ xd", SIM, memory="in_memory")
 
 
 def test_profile():

@@ -20,7 +20,7 @@ _NAMES = {"c": "cutoff", "p": "polynomial_order", "q": "bias_order", "deriv": "d
           "rho": "bandwidth_ratio", "scalepar": "scale", "masspoints": "mass_points"}
 
 
-def _kwargs(case, collapse):
+def _kwargs(case, variant):
     kw = {_NAMES[k]: v for k, v in case.items() if k in _NAMES}
     if "vce" in case:
         kw["vcov"] = case["vce"].upper()
@@ -44,10 +44,9 @@ def _kwargs(case, collapse):
         kw["covariates"] = case["covs"]
     if case.get("sharpbw"):
         kw["sharp_bandwidth"] = True
-    if collapse in ("by_value", "window", "slabs"):
-        kw["memory"] = "window" if collapse == "slabs" else collapse
-    else:                     # the in-memory path, collapsed or not ("auto" would group by value)
-        kw["collapse"], kw["memory"] = collapse, "in_memory"
+    # "collapsed": the rows held, collapsed to one per value ("auto" kept off the by-value
+    # path, as when its table does not fit)
+    kw["memory"] = {"slabs": "window", "collapsed": "auto"}.get(variant, variant)
     return kw
 
 
@@ -67,11 +66,11 @@ PARAMS = []
 for name, case in CASES.items():
     if case.get("all"):
         continue
-    PARAMS.append(pytest.param(name, "never", id=f"{name}-rows"))
+    PARAMS.append(pytest.param(name, "rows", id=f"{name}-rows"))
     PARAMS.append(pytest.param(name, "window", id=f"{name}-window"))
     PARAMS.append(pytest.param(name, "slabs", id=f"{name}-slabs"))
     if case.get("x") == "xd" and _collapsible(case):
-        PARAMS.append(pytest.param(name, "always", id=f"{name}-collapsed"))
+        PARAMS.append(pytest.param(name, "collapsed", id=f"{name}-collapsed"))
         PARAMS.append(pytest.param(name, "by_value", id=f"{name}-by_value"))
 
 
@@ -84,11 +83,15 @@ def narrow_window(monkeypatch):
     monkeypatch.setattr(_window, "_START", 0.3)
 
 
-@pytest.mark.parametrize("name,collapse", PARAMS)
-def test_rdrobust(name, collapse, narrow_window, monkeypatch, tmp_path):
+@pytest.mark.parametrize("name,variant", PARAMS)
+def test_rdrobust(name, variant, narrow_window, monkeypatch, tmp_path):
     case, ref = CASES[name], REFS[name]
-    kw = _kwargs(case, collapse)
-    if collapse == "slabs":
+    kw = _kwargs(case, variant)
+    if variant == "collapsed":
+        from rd_stream import _memory
+
+        monkeypatch.setattr(_memory, "_BY_VALUE", False)
+    if variant == "slabs":
         # the rows in slabs of at most 300 on disk
         from rd_stream import _window
 
@@ -103,10 +106,10 @@ def test_rdrobust(name, collapse, narrow_window, monkeypatch, tmp_path):
     assert list(r.n_bandwidth) == ref["n_h"]
     assert list(r.n_bias_bandwidth) == ref["n_b"]
     assert [r.n_left, r.n_right] == ref["n"]
-    if collapse not in ("window", "slabs"):
-        assert r.collapsed == (collapse in ("always", "by_value"))
+    if variant not in ("window", "slabs"):
+        assert r.collapsed == (variant in ("collapsed", "by_value"))
     assert r.memory == {"by_value": "by_value", "window": "window",
-                        "slabs": "window"}.get(collapse, "in_memory")
+                        "slabs": "window"}.get(variant, "rows")
     if "fuzzy" in case:
         fs = r.first_stage
         _close([fs["tau_cl"], fs["tau_bc"]], ref["tau_T"][:2])
@@ -117,9 +120,7 @@ def test_rdrobust(name, collapse, narrow_window, monkeypatch, tmp_path):
 @pytest.mark.parametrize("name", [n for n, c in CASES.items() if c.get("all")])
 def test_rdbwselect_all(name, memory, narrow_window):
     case, ref = CASES[name], REFS[name]
-    kw = _kwargs(case, "auto")
-    kw.pop("collapse")
-    kw["memory"] = memory
+    kw = _kwargs(case, memory)
     bw = rd.rd_bandwidth(_fml(case), DATA / f"{case['data']}.parquet", all_selectors=True, **kw)
     table = {row["selector"]: row for row in bw.table.iter_rows(named=True)}
     for row in ref["bws"]:

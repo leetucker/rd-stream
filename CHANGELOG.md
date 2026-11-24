@@ -11,12 +11,14 @@
   window.
 - `rd_bandwidth`: rdbwselect's bandwidths, one selector or all ten.
 - `rd_plot`: rdplot's binned means (the eight bin selection methods, or a given number of
-  bins) and global polynomial fits, drawn with `.plot()`.
-- An exact fit on one row per distinct value of the running variable, chosen automatically.
-- `memory=`, `max_memory_gb=` and `memory_reserve=`. When the running variable has at most
-  half as many distinct values as rows (and the fit has no clusters or weights), the data
-  are grouped by its value as they are read: several times faster than holding the rows,
-  with memory that grows with the distinct values rather than the rows.
+  bins) and global polynomial fits, drawn with `.plot()`; several outcomes from one read,
+  drawn as a grid of panels.
+- `memory="auto" | "rows" | "by_value" | "window"`, `max_memory_gb=` and
+  `memory_reserve=`. With `"by_value"`, which "auto" takes when the running variable has
+  at most half as many distinct values as rows (and the fit has no clusters or weights),
+  the data are grouped by its value as they are read, and the fit runs on one row per
+  value with the same results: several times faster than holding the rows, with memory
+  that grows with the distinct values rather than the rows.
 - `memory="window"`, for fits whose rows do not fit and whose running variable is
   continuous, or that have clusters or weights: the full sample's statistics come from
   streaming passes, including exact quartiles and exact distinct counts
@@ -24,7 +26,7 @@
   pass). Only the rows near the cutoff are held. When a step's
   window does not fit, the rows go to disk (`workdir=`) in slabs by distance from the
   cutoff, read a slab at a time. "auto" takes it when neither other path fits. The
-  results are the in-memory path's (all the R reference cases agree within 1e-8 through
+  results are the same as with `"rows"` (all the R reference cases agree within 1e-8 through
   it).
 - `profile=True`: the rows, the distinct values of the running variable, the memory path
   and its memory and disk, without fitting.

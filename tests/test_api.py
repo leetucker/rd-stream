@@ -55,16 +55,17 @@ def test_frames_and_paths_agree():
     np.testing.assert_array_equal(a.beta, c.beta)
 
 
-def test_collapse_auto_and_exactness():
+def test_collapse_is_exact():
     auto = rd.rd_estimate("y ~ xd", SIM)
-    rows = rd.rd_estimate("y ~ xd", SIM, collapse="never")
+    rows = rd.rd_estimate("y ~ xd", SIM, memory="rows")
     assert auto.collapsed and not rows.collapsed
     np.testing.assert_allclose(auto.beta, rows.beta, rtol=1e-10)
     np.testing.assert_allclose(auto.se, rows.se, rtol=1e-10)
     assert not rd.rd_estimate("y ~ x", SIM).collapsed
     assert not rd.rd_estimate("y ~ xd", SIM, vcov={"CRV1": "cl"}).collapsed
-    with pytest.raises(ValueError, match="without clusters and weights"):
-        rd.rd_estimate("y ~ xd", SIM, weights="w", collapse="always")
+    assert not rd.rd_estimate("y ~ xd", SIM, weights="w").collapsed
+    with pytest.raises(TypeError):
+        rd.rd_estimate("y ~ xd", SIM, collapse="never")
 
 
 def test_threads_do_not_change_the_result():

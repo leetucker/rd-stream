@@ -27,7 +27,7 @@ again out to the distance it needs, while they fit the memory budget, and
 the fit starts over. The first radius is a few pilot bandwidths, so that
 most fits read the rows once.
 
-The results are the in-memory path's: the same rows enter every window sum
+The results are the rows path's: the same rows enter every window sum
 in the same order, and the full-sample statistics are the same numbers,
 up to the order of summation.
 """

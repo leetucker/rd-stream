@@ -142,7 +142,7 @@ class _Data:
     each distinct value's count, column sums and cross-products per outcome."""
 
     def __init__(self, data, running, outcomes, cluster, weights, treatment=None,
-                 covariates=(), memory="in_memory", window=None):
+                 covariates=(), memory="rows", window=None):
         self.by_value = memory == "by_value"
         self.windowed = memory == "window"
         self.covariates = list(covariates)
@@ -381,7 +381,7 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
                 regularization: float = 1.0, scale: float = 1.0,
                 treatment: str | None = None, sharp_bandwidth: bool = False,
                 covariates: Sequence[str] | str | None = None,
-                collapse: str = "auto", memory: str = "auto",
+                memory: str = "auto",
                 max_memory_gb: float | None = None, memory_reserve: float | None = None,
                 workdir: str | None = None, n_threads: int | None = None,
                 profile: bool = False) -> RDResult | RDMulti:
@@ -471,24 +471,21 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
         same coefficients on both sides, which leaves the estimand unchanged
         when they are balanced at the cutoff and can shorten the intervals.
         Collinear covariates are dropped with a warning.
-    collapse : {"auto", "always", "never"}
-        Fit on one row per distinct value of the running variable, which is
-        exact (without clusters and weights). "auto" collapses when there
-        are at most half as many distinct values as observations.
-    memory : {"auto", "in_memory", "by_value", "window"}
-        How the data are held. "in_memory" reads and sorts the rows used.
-        "by_value" groups the rows by the value of the running variable as
-        it reads them (one streaming pass), keeping only each value's count,
-        sums and cross-products, so memory grows with the number of distinct
-        values rather than the rows; the fit is the collapsed one, and needs
-        no clusters or weights. "window" takes the full sample's statistics
+    memory : {"auto", "rows", "by_value", "window"}
+        How the data are held. "rows" reads and sorts the rows used, and
+        fits on every row. "by_value" groups the rows by the value of the
+        running variable as it reads them (one streaming pass), keeping only
+        each value's count, sums and cross-products, and fits on one row per
+        value, which gives the same results; memory grows with the number of
+        distinct values rather than the rows, and the fit needs no clusters
+        or weights. "window" takes the full sample's statistics
         in streaming passes (standard deviations, exact quartiles and
         distinct counts, and the power sums of rdbwselect's fit over each
         side's range) and holds only the rows near the cutoff; when a step's
         window does not fit in memory, the rows are written to `workdir` in
         slabs by distance from the cutoff, and each window sum reads them a
-        slab at a time. It takes any fit, and gives the in-memory path's
-        results. "auto" (the default) groups by value when the fit allows it
+        slab at a time. It takes any fit, and gives the same results as
+        "rows". "auto" (the default) groups by value when the fit allows it
         and the running variable has at most half as many distinct values
         as rows (an approximate count, in one pass over it), else holds the
         rows when they fit the memory budget, and otherwise takes the window
@@ -524,8 +521,9 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
     o, cluster = _options(cutoff, polynomial_order, bias_order, derivative, kernel, vcov,
                           n_neighbors, mass_points, min_distinct, restrict_bandwidth,
                           standardize, regularization, scale)
-    if collapse not in ("auto", "always", "never"):
-        raise ValueError("collapse must be 'auto', 'always' or 'never'")
+    # on one row per distinct value of x when that is shorter (the same results): not with
+    # "rows", which fits on every row
+    collapse = "never" if memory == "rows" else "auto"
     grid = bandwidth if isinstance(bandwidth, list) else [bandwidth]
     covs = _as_list(covariates) if covariates is not None else []
     path = _memory_path(data, running, outcomes, cluster, weights, treatment, covs, collapse,
@@ -613,7 +611,7 @@ def _window_options(path, o, running, outcomes, cluster, treatment, covs, max_me
 
 def _memory_path(data, running, outcomes, cluster, weights, treatment, covs, collapse, memory,
                  max_memory_gb, memory_reserve, n_threads, profile, model, o=None, hint=None):
-    """The memory path ("in_memory", "by_value" or "window"), or the
+    """The memory path ("rows", "by_value" or "window"), or the
     Profile. Without options `o` (rd_plot) there is no window path."""
     from stream_limits import detect_cpus
 
@@ -678,9 +676,7 @@ def _prepare(data, running, y_name, o, cluster, weights, collapse):
     use_units = False
     if collapse != "never" and cluster is None and weights is None:
         n_distinct = K.runs(x).shape[0] - 1
-        use_units = collapse == "always" or n_distinct <= x.shape[0] / 2
-    elif collapse == "always":
-        raise ValueError("collapse='always' needs a fit without clusters and weights")
+        use_units = n_distinct <= x.shape[0] / 2
     left, right = _sides(x, D, w, cl, data.n_clusters, c, use_units,
                          dT=0 if t is None else 1)
     for s, name in ((left, "left"), (right, "right")):
@@ -754,9 +750,7 @@ def _prepare_window(data, running, y_name, o, cluster, weights, collapse):
     use_units = False
     if collapse != "never" and cluster is None and weights is None:
         n_distinct = K.runs(x).shape[0] - 1
-        use_units = collapse == "always" or n_distinct <= x.shape[0] / 2
-    elif collapse == "always":
-        raise ValueError("collapse='always' needs a fit without clusters and weights")
+        use_units = n_distinct <= x.shape[0] / 2
     left, right = _sides(x, D, w, cl, W.n_clusters, c, use_units, dT=dT)
     for s, side in ((left, "l"), (right, "r")):
         s.held_window(math.inf if W.side_complete(side) else W.radius,
@@ -799,10 +793,7 @@ def _prepare_slabs(data, running, y_name, o, cluster, weights, collapse, st):
     if W.covariates:
         full_cols += [1 + dT + j for j in _drop_collinear_gram(st["ZZ"], data.covariates)]
     collapsible = collapse != "never" and cluster is None and weights is None
-    if collapse == "always" and not collapsible:
-        raise ValueError("collapse='always' needs a fit without clusters and weights")
-    use_units = collapsible and (collapse == "always"
-                                 or st["M_l"] + st["M_r"] <= st["N"] / 2)
+    use_units = collapsible and st["M_l"] + st["M_r"] <= st["N"] / 2
     sides = [SlabSide(W.store, side, o.cutoff, y=y_name, extra=extra, dT=dT,
                       collapse=use_units, full=st["full"][side].columns(full_cols),
                       n_side=st[f"n_{side}"], M_side=st[f"M_{side}"], cols=full_cols,
@@ -913,7 +904,7 @@ def _fit_one(data, running, y_name, o, bandwidth, bias_bandwidth, rho, cluster, 
         side_estimates=dict(conventional=(fac * L.beta_p[o.deriv], fac * R.beta_p[o.deriv]),
                             bias_corrected=(fac * L.beta_bc[o.deriv], fac * R.beta_bc[o.deriv])),
         collapsed=use_units, memory=("by_value" if data.by_value else
-                                     "window" if data.windowed else "in_memory"),
+                                     "window" if data.windowed else "rows"),
         treatment=treatment, first_stage=est.get("first_stage"),
         timings=dict(read_sort_s=data.read_sort_s if not data.windowed
                      else data.window.stats_s + data.window.read_s, prepare_s=t1 - t0,
@@ -939,7 +930,7 @@ def rd_bandwidth(fml: str, data, *, cutoff: float = 0.0, selector: str = "mserd"
                  restrict_bandwidth: bool = True, standardize: bool = True,
                  regularization: float = 1.0, treatment: str | None = None,
                  sharp_bandwidth: bool = False, covariates: Sequence[str] | str | None = None,
-                 collapse: str = "auto", memory: str = "auto",
+                 memory: str = "auto",
                  max_memory_gb: float | None = None, memory_reserve: float | None = None,
                  workdir: str | None = None, n_threads: int | None = None,
                  profile: bool = False) -> BandwidthResult:
@@ -954,6 +945,7 @@ def rd_bandwidth(fml: str, data, *, cutoff: float = 0.0, selector: str = "mserd"
     o, cluster = _options(cutoff, polynomial_order, bias_order, derivative, kernel, vcov,
                           n_neighbors, mass_points, min_distinct, restrict_bandwidth,
                           standardize, regularization, 1.0)
+    collapse = "never" if memory == "rows" else "auto"
     covs = _as_list(covariates) if covariates is not None else []
     path = _memory_path(data, running, outcomes, cluster, weights, treatment, covs, collapse,
                         memory, max_memory_gb, memory_reserve, n_threads, profile,

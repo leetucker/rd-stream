@@ -81,7 +81,7 @@ def py(test, tag, script, *args, limit=1800):
 
 def T1():
     SLABS.mkdir(parents=True, exist_ok=True)
-    for mem in ("auto", "in_memory"):
+    for mem in ("auto", "rows"):
         ours("T1", f"20 outcomes x (mserd + 50 bandwidths), 1e7, {mem}", "multi",
              data(10**7, k=20), 20, 50, {"memory": mem, "workdir": str(SLABS)})
 
@@ -107,7 +107,7 @@ def T3():
 
 def T4():
     for n in (10**7, 3 * 10**7, 10**8):
-        for mem in ("by_value", "in_memory"):
+        for mem in ("by_value", "rows"):
             ours("T4", f"discrete {mem}, {n:.0e}", "fit", data(n), "y ~ xd", {"memory": mem})
         ours("T4", f"HyperLogLog pre-pass on x, {n:.0e}", "distinct", data(n), "x",
              {"exact": False})
@@ -122,8 +122,8 @@ def T5():
             ("clusters", data(n), "y ~ x", {"vcov": {"CRV1": "cl"}}),
             ("covariates 3", k20, "y ~ x", {"covariates": ["y2", "y3", "y4"]}),
             ("fuzzy+covariates", k20, "y ~ x", {"treatment": "y9", "covariates": ["y2"]})):
-        ours("T5", f"profile {tag}", "profile", path, fml, {**kw, "memory": "in_memory"})
-        ours("T5", f"measured {tag}", "fit", path, fml, {**kw, "memory": "in_memory"})
+        ours("T5", f"profile {tag}", "profile", path, fml, {**kw, "memory": "rows"})
+        ours("T5", f"measured {tag}", "fit", path, fml, {**kw, "memory": "rows"})
     ours("T5", "profile by_value 1e8", "profile", data(10**8), "y ~ xd", {"memory": "by_value"})
     ours("T5", "measured by_value 1e8", "fit", data(10**8), "y ~ xd", {"memory": "by_value"})
 
@@ -162,8 +162,8 @@ def T9(sizes=(10**8, 3 * 10**8)):
              {"phase": "stats", "max_memory_gb": 4.0, "workdir": str(SLABS)})
         ours("T9", f"phase write, {n:.0e}", "phase", data(n), "y ~ x",
              {"phase": "write", "max_memory_gb": 4.0, "workdir": str(SLABS)})
-    ours("T9", "in_memory 1e8 (expected out of memory)", "fit", data(10**8), "y ~ x",
-         {"memory": "in_memory"})
+    ours("T9", "rows 1e8 (expected out of memory)", "fit", data(10**8), "y ~ x",
+         {"memory": "rows"})
     ours("T9", "auto under the 10 GB cap, 1e8", "fit", data(10**8), "y ~ x",
          {"workdir": str(SLABS)})
 
@@ -214,7 +214,7 @@ def T11():
 def T12():
     SLABS.mkdir(parents=True, exist_ok=True)
     path = data(10**7, kind="concentrated")
-    ours("T12", "concentrated in_memory", "fit", path, "y ~ x", {"memory": "in_memory"})
+    ours("T12", "concentrated rows", "fit", path, "y ~ x", {"memory": "rows"})
     for gb in (1.0, 2.0):
         ours("T12", f"concentrated window {gb} GB", "fit", path, "y ~ x",
              {"memory": "window", "max_memory_gb": gb, "workdir": str(SLABS)})

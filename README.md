@@ -46,19 +46,24 @@ rd_plot("vote ~ margin", "senate.parquet").plot(ci=True)
     power sums, and the nearest-neighbor residuals are computed once.
 - `rd_bandwidth` gives rdbwselect's bandwidths, one selector or all ten.
 - `rd_plot` gives rdplot's binned means, with its eight ways of choosing the bins, and the
-  global polynomial fits. `.plot()` draws them with matplotlib.
+  global polynomial fits. `.plot()` draws them with matplotlib. Several outcomes
+  (`"y1 + y2 ~ x"`) share one read and sort, and `.plot()` draws them as a grid of panels.
 - Results have hdfe-stream's reporting: `summary()`, `tidy()`, `confint()` and
   `summary_json()`. With several outcomes or bandwidths, `estimates()` gives one row
   per fit.
-- When the rows don't fit in memory:
-  - If the running variable has mass points (ages, scores, dates), the data are grouped
-    by its value as they are read, so memory grows with the number of distinct values.
-  - Otherwise, rd-stream takes the full sample's statistics in streaming passes and
-    holds only the rows near the cutoff. When a step's window doesn't fit either, the
-    rows are written to disk in slabs by distance from the cutoff, and each step reads
-    them a slab at a time. The results are the same as in memory.
-  - On 10 million rows with `max_memory_gb=1`, a fit took 6.5 s at a peak of 0.46 GB,
-    against 1.6 s and 1.55 GB in memory (2 threads).
+- `memory=` says how the data are held; the default, `"auto"`, picks the first that
+  applies:
+  - `"by_value"`: when the running variable has mass points (ages, scores, dates) and
+    the fit has no clusters or weights, the data are grouped by its value as they are
+    read. Memory grows with the number of distinct values, and the fit runs on one row
+    per value, with the same results. At 10 million rows it is about 7 times faster than
+    holding the rows.
+  - `"rows"`: the rows are read and sorted once, when they fit the memory budget.
+  - `"window"`: the full sample's statistics come from streaming passes, and only the
+    rows near the cutoff are held. When a step's window doesn't fit either, the rows
+    are written to disk in slabs by distance from the cutoff, and each step reads them
+    a slab at a time. The results are the same as with `"rows"`. 300 million rows took
+    about 4.3 minutes under a 2 GB budget (4 threads).
 - `max_memory_gb=` sets the budget, `workdir=` says where the slabs go, and
   `profile=True` reports the memory and disk a fit would need without running it.
 

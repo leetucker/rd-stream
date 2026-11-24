@@ -1,9 +1,9 @@
 """How a fit holds its data, and what that costs: the memory model behind
 ``memory="auto"``, ``max_memory_gb=`` and ``profile=True``.
 
-Two paths:
+Three paths:
 
-- ``"in_memory"``: the running variable, the outcomes and any take-up,
+- ``"rows"``: the running variable, the outcomes and any take-up,
   covariate, cluster and weight columns are read and sorted once. Peak
   memory grows with the rows: about 85 bytes a row, plus 29 for each column
   read and 5 for each column of a fit's response (the outcome, take-up
@@ -12,8 +12,8 @@ Two paths:
   meets or exceeds; the upper bound adds a quarter.
 - ``"by_value"``: one streaming group-by of the rows by the value of the
   running variable gives each value's count, column sums and
-  within-value cross-products, which are all the fit needs (it is exact:
-  see `rd_estimate`'s ``collapse``). Memory grows with the number of
+  within-value cross-products, which are all the fit needs (it is exact).
+  Memory grows with the number of
   distinct values, not the rows, plus the streaming read's buffers. It
   needs a fit without clusters or weights.
 
@@ -28,7 +28,7 @@ Two paths:
 ``memory="auto"`` takes the by-value path when the fit has no clusters or
 weights and the running variable has at most half as many distinct values
 as rows (an approximate count, one streaming pass over it): it is several
-times faster than holding the rows. Else the in-memory path when its peak
+times faster than holding the rows. Else the rows path when its peak
 fits stream-limits' `MemoryBudget` (the limit, less a reserve, less what
 the process holds), else the window path.
 """
@@ -46,14 +46,15 @@ from hdfe_stream.core.profile import (
     source_row_group_rows,
 )
 
-MEMORY_PATHS = ("auto", "in_memory", "by_value", "window")
+MEMORY_PATHS = ("auto", "rows", "by_value", "window")
+_BY_VALUE = True             # tests: False keeps "auto" off the by-value path
 _ROW_BASE, _PER_READ, _PER_COLUMN, _CLUSTER = 85, 29, 5, 12
 _UPPER = 1.25
 _LIBRARIES_GB = 0.15          # the compiled kernels, NumPy, Polars and SciPy
 
 
 def rows_bytes(n, n_read, n_columns, clustered):
-    """Expected peak bytes of the in-memory path for n rows."""
+    """Expected peak bytes of the rows path for n rows."""
     per = _ROW_BASE + _PER_READ * n_read + _PER_COLUMN * n_columns
     return n * (per + (_CLUSTER if clustered else 0))
 
@@ -85,18 +86,17 @@ def approx_distinct(lf: pl.LazyFrame, running: str) -> int:
 
 def choose(lf, source, *, memory, running, n_read, n_columns, n_outcomes, clustered,
            weighted, collapse, threads, max_memory_gb, memory_reserve, window=True):
-    """The path for a fit: ("in_memory" | "by_value" | "window", notes).
+    """The path for a fit: ("rows" | "by_value" | "window", notes).
     `window`: whether the caller has a window path."""
     from stream_limits import MemoryBudget
 
     collapsible = not clustered and not weighted and collapse != "never"
     if memory == "by_value":
         if not collapsible:
-            raise ValueError("memory='by_value' needs a fit without clusters and weights, "
-                             "and collapse other than 'never'")
+            raise ValueError("memory='by_value' needs a fit without clusters and weights")
         return "by_value", {}
-    if memory == "in_memory":
-        return "in_memory", {}
+    if memory == "rows":
+        return "rows", {}
     if memory == "window":
         if not window:
             raise ValueError("memory='window' is available in rd_estimate and rd_bandwidth, "
@@ -105,9 +105,9 @@ def choose(lf, source, *, memory, running, n_read, n_columns, n_outcomes, cluste
     budget = MemoryBudget(limit_gb=max_memory_gb, reserve=memory_reserve)
     n = count_rows(lf)
     need = rows_bytes(n, n_read, n_columns, clustered) / 1e9
-    notes = {"rows": n, "in_memory_gb": round(need, 3),
+    notes = {"rows": n, "rows_gb": round(need, 3),
              "headroom_gb": round(budget.headroom_gb(), 3)}
-    if collapsible:
+    if collapsible and _BY_VALUE:
         m = approx_distinct(lf, running)
         notes["distinct_values"] = m
         need_u = (units_bytes(m, n_outcomes, n_columns)
@@ -116,7 +116,7 @@ def choose(lf, source, *, memory, running, n_read, n_columns, n_outcomes, cluste
         if m <= n / 2 and budget.fits(need_u * _UPPER):
             return "by_value", notes
     if budget.fits(need * _UPPER):
-        return "in_memory", notes
+        return "rows", notes
     if window:
         return "window", notes
     hint = ("" if collapsible else
@@ -147,29 +147,29 @@ def profile(lf, source, *, running, outcomes, extra, n_columns, clustered, weigh
     collapsible = not clustered and not weighted and collapse != "never"
     path = memory
     if path == "auto":
-        if collapsible and m <= n / 2 and budget.fits(
+        if collapsible and _BY_VALUE and m <= n / 2 and budget.fits(
                 (units_bytes(m, len(outcomes), n_columns)
                  + read_buffer_bytes(source, n_read, threads)) * _UPPER / 1e9):
             path = "by_value"
         elif budget.fits(rows_gb * _UPPER / 1e9):
-            path = "in_memory"
+            path = "rows"
         elif window is not None:
             path = "window"
         else:
-            path = "in_memory"
+            path = "rows"
     if path == "window" and window is None:
         raise ValueError("memory='window' is available in rd_estimate and rd_bandwidth, "
                          "not rd_plot")
     comps = [Component("compiled kernels and libraries", _LIBRARIES_GB * 1e9,
                        phases=("fit",))]
     warnings = []
-    if path == "in_memory":
+    if path == "rows":
         per = rows_gb / max(n, 1)
         comps.append(Component("sorted rows and the fits' arrays", rows_gb, rows_gb * _UPPER,
                                phases=("fit",),
                                formula=f"{n:,} rows x {per:.0f} B ({n_read} columns read)"))
         if not budget.fits(rows_gb * _UPPER / 1e9):
-            warnings.append("the in-memory path does not fit the memory budget"
+            warnings.append("holding the rows does not fit the memory budget"
                             + ("" if collapsible else
                                " (the by-value path needs a fit without clusters and weights)"))
     elif path == "window":

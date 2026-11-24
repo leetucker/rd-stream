@@ -15,10 +15,10 @@ _limits.apply_scheduler_defaults()
 # another closely, and run 2-5 times slower when idle threads sleep (passive).
 
 from .api import BandwidthResult, rd_bandwidth, rd_estimate  # noqa: E402
-from .plot import RDPlot, rd_plot  # noqa: E402
+from .plot import RDPlot, RDPlotMulti, rd_plot  # noqa: E402
 from .results import RDMulti, RDResult  # noqa: E402
 
 __version__ = "0.1.0.dev0"
 
-__all__ = ["BandwidthResult", "RDMulti", "RDPlot", "RDResult", "rd_bandwidth", "rd_estimate",
-           "rd_plot"]
+__all__ = ["BandwidthResult", "RDMulti", "RDPlot", "RDPlotMulti", "RDResult", "rd_bandwidth",
+           "rd_estimate", "rd_plot"]
