@@ -62,7 +62,7 @@ def test_collapse_auto_and_exactness():
     np.testing.assert_allclose(auto.beta, rows.beta, rtol=1e-10)
     np.testing.assert_allclose(auto.se, rows.se, rtol=1e-10)
     assert not rd.rd_estimate("y ~ x", SIM).collapsed
-    assert not rd.rd_estimate("y ~ xd", SIM, cluster="cl").collapsed
+    assert not rd.rd_estimate("y ~ xd", SIM, vcov={"CRV1": "cl"}).collapsed
     with pytest.raises(ValueError, match="without clusters and weights"):
         rd.rd_estimate("y ~ xd", SIM, weights="w", collapse="always")
 
@@ -91,8 +91,28 @@ def test_bad_options():
         rd.rd_estimate("y ~ x", SIM, bandwidth="ik")
     with pytest.raises(ValueError, match="bandwidth"):
         rd.rd_estimate("y ~ x", SIM, bandwidth=-1.0)
-    with pytest.raises(NotImplementedError, match="CR2"):
-        rd.rd_estimate("y ~ x", SIM, cluster="cl", vcov="hc2")
+    with pytest.raises(ValueError, match="cluster column"):
+        rd.rd_estimate("y ~ x", SIM, vcov="CRV2")
+    with pytest.raises(ValueError, match="vcov must be"):
+        rd.rd_estimate("y ~ x", SIM, vcov="cr2")
+    with pytest.raises(ValueError, match="one-way"):
+        rd.rd_estimate("y ~ x", SIM, vcov={"CRV1": "cl+w"})
+    with pytest.raises(ValueError, match="one clustering"):
+        rd.rd_estimate("y ~ x", SIM, vcov={"CRV1": "cl", "CRV2": "cl"})
+    with pytest.raises(TypeError):
+        rd.rd_estimate("y ~ x", SIM, cluster="cl")
+
+
+def test_vcov_spellings_follow_hdfe_stream():
+    a = rd.rd_estimate("y ~ x", SIM, vcov={"CRV2": "cl"})
+    for v in ("CRV2:cl", {"crv2": "cl"}, "crv2:cl"):
+        np.testing.assert_array_equal(rd.rd_estimate("y ~ x", SIM, vcov=v).se, a.se)
+    assert a.vcov_type == "CRV2"
+    assert rd.rd_estimate("y ~ x", SIM, vcov={"CRV1": "cl"}).vcov_type == "CRV1"
+    h = rd.rd_estimate("y ~ x", SIM, vcov="HC1")
+    assert h.vcov_type == "HC1"
+    for v in ("hc1", "hetero"):
+        np.testing.assert_array_equal(rd.rd_estimate("y ~ x", SIM, vcov=v).se, h.se)
 
 
 def test_bandwidth_table():

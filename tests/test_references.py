@@ -23,7 +23,7 @@ _NAMES = {"c": "cutoff", "p": "polynomial_order", "q": "bias_order", "deriv": "d
 def _kwargs(case, collapse):
     kw = {_NAMES[k]: v for k, v in case.items() if k in _NAMES}
     if "vce" in case:
-        kw["vcov"] = case["vce"]
+        kw["vcov"] = case["vce"].upper()
     if "h" in case:
         kw["bandwidth"] = tuple(case["h"]) if isinstance(case["h"], list) else case["h"]
     elif "bwselect" in case:
@@ -31,7 +31,11 @@ def _kwargs(case, collapse):
     if "b" in case:
         kw["bias_bandwidth"] = tuple(case["b"]) if isinstance(case["b"], list) else case["b"]
     if case.get("cluster"):
-        kw["cluster"] = "cl"
+        # rdrobust's vce with clusters: hc0/hc1 (and the default) give CR1, hc2 and hc3 CR2
+        # and CR3
+        v = {"HC2": "CRV2", "HC3": "CRV3", "CR2": "CRV2", "CR3": "CRV3"}.get(
+            kw.get("vcov"), "CRV1")
+        kw["vcov"] = {v: "cl"}
     if case.get("weights"):
         kw["weights"] = "w"
     if "fuzzy" in case:
@@ -40,7 +44,10 @@ def _kwargs(case, collapse):
         kw["covariates"] = case["covs"]
     if case.get("sharpbw"):
         kw["sharp_bandwidth"] = True
-    kw["collapse"] = collapse
+    if collapse in ("by_value", "window", "slabs"):
+        kw["memory"] = "window" if collapse == "slabs" else collapse
+    else:                     # the in-memory path, collapsed or not ("auto" would group by value)
+        kw["collapse"], kw["memory"] = collapse, "in_memory"
     return kw
 
 
@@ -61,14 +68,33 @@ for name, case in CASES.items():
     if case.get("all"):
         continue
     PARAMS.append(pytest.param(name, "never", id=f"{name}-rows"))
+    PARAMS.append(pytest.param(name, "window", id=f"{name}-window"))
+    PARAMS.append(pytest.param(name, "slabs", id=f"{name}-slabs"))
     if case.get("x") == "xd" and _collapsible(case):
         PARAMS.append(pytest.param(name, "always", id=f"{name}-collapsed"))
+        PARAMS.append(pytest.param(name, "by_value", id=f"{name}-by_value"))
+
+
+@pytest.fixture
+def narrow_window(monkeypatch):
+    """The window path's first read at a third of the pilot bandwidth, so
+    that the fits read the rows again and the range fits use the power sums."""
+    from rd_stream import _window
+
+    monkeypatch.setattr(_window, "_START", 0.3)
 
 
 @pytest.mark.parametrize("name,collapse", PARAMS)
-def test_rdrobust(name, collapse):
+def test_rdrobust(name, collapse, narrow_window, monkeypatch, tmp_path):
     case, ref = CASES[name], REFS[name]
     kw = _kwargs(case, collapse)
+    if collapse == "slabs":
+        # the rows in slabs of at most 300 on disk
+        from rd_stream import _window
+
+        monkeypatch.setattr(_window, "_SLABS_ALWAYS", True)
+        monkeypatch.setattr(_window, "_SLAB_ROWS", 300)
+        kw["workdir"] = tmp_path
     r = rd.rd_estimate(_fml(case), DATA / f"{case['data']}.parquet", **kw)
     _close(r.beta, ref["coef"])
     _close(r.se, ref["se"])
@@ -77,18 +103,23 @@ def test_rdrobust(name, collapse):
     assert list(r.n_bandwidth) == ref["n_h"]
     assert list(r.n_bias_bandwidth) == ref["n_b"]
     assert [r.n_left, r.n_right] == ref["n"]
-    assert r.collapsed == (collapse == "always")
+    if collapse not in ("window", "slabs"):
+        assert r.collapsed == (collapse in ("always", "by_value"))
+    assert r.memory == {"by_value": "by_value", "window": "window",
+                        "slabs": "window"}.get(collapse, "in_memory")
     if "fuzzy" in case:
         fs = r.first_stage
         _close([fs["tau_cl"], fs["tau_bc"]], ref["tau_T"][:2])
         _close([fs["se_cl"], fs["se_rb"]], [ref["se_T"][0], ref["se_T"][-1]])
 
 
+@pytest.mark.parametrize("memory", ["auto", "window"])
 @pytest.mark.parametrize("name", [n for n, c in CASES.items() if c.get("all")])
-def test_rdbwselect_all(name):
+def test_rdbwselect_all(name, memory, narrow_window):
     case, ref = CASES[name], REFS[name]
     kw = _kwargs(case, "auto")
     kw.pop("collapse")
+    kw["memory"] = memory
     bw = rd.rd_bandwidth(_fml(case), DATA / f"{case['data']}.parquet", all_selectors=True, **kw)
     table = {row["selector"]: row for row in bw.table.iter_rows(named=True)}
     for row in ref["bws"]:

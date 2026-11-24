@@ -28,7 +28,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     # result base classes, reporting, source handling (hdfe_stream.core's stable names)
-    "hdfe-stream>=0.12.0",
+    "hdfe-stream>=0.13.0",
     "stream-limits>=0.3.0",
     "polars>=1.37,!=1.41.*",
     "numpy>=2.0",

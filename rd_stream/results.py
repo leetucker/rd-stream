@@ -50,6 +50,10 @@ class RDResult(RegressionResult):
     collapsed : bool
         Whether the fit ran on one row per distinct value of the running
         variable (exact; see the documentation).
+    memory : str
+        How the data were held: "in_memory" (the sorted rows), "by_value"
+        (grouped by the running variable as they were read) or "window"
+        (the rows near the cutoff, or slabs of them on disk).
     """
 
     running: str
@@ -68,6 +72,7 @@ class RDResult(RegressionResult):
     n_distinct: tuple
     side_estimates: dict = field(default_factory=dict)
     collapsed: bool = False
+    memory: str = "in_memory"
     treatment: str | None = None
     first_stage: dict | None = None
     timings: dict = field(default_factory=dict)
@@ -116,7 +121,7 @@ class RDResult(RegressionResult):
                    derivative=self.derivative, kernel=self.kernel, n_left=self.n_left,
                    n_right=self.n_right, n_bandwidth=list(self.n_bandwidth),
                    n_bias_bandwidth=list(self.n_bias_bandwidth),
-                   n_distinct=list(self.n_distinct), collapsed=self.collapsed,
+                   n_distinct=list(self.n_distinct), collapsed=self.collapsed, memory=self.memory,
                    treatment=self.treatment, first_stage=self.first_stage)
         return out
 

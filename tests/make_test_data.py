@@ -103,8 +103,49 @@ def main():
     add("covs_kink", "sim", covs=["z1"], p=2, deriv=1)
     add("covs_weights", "sim", covs=["z1", "z2"], weights=True)
     add("covs_all_selectors", "sim", covs=["z1", "z2"], all=True)
+    for v in ("cr2", "cr3"):
+        add(f"sim_{v}", "sim", cluster=True, vce=v)
+        add(f"sim_{v}_manual_hb", "sim", cluster=True, vce=v, h=0.2)
+        add(f"sim_{v}_manual_h_b", "sim", cluster=True, vce=v, h=0.2, b=0.3)
+        add(f"sim_{v}_weights", "sim", cluster=True, vce=v, weights=True)
+        add(f"sim_{v}_msetwo_epanechnikov", "sim", cluster=True, vce=v, bwselect="msetwo",
+            kernel="epanechnikov")
+        add(f"sim_{v}_p2", "sim", cluster=True, vce=v, p=2)
+        add(f"senate_{v}", "senate", cluster=True, vce=v)
+        add(f"discrete_{v}", "sim", x="xd", cluster=True, vce=v)
+        add(f"fuzzy_{v}", "sim", fuzzy="t", cluster=True, vce=v)
+        add(f"covs_{v}", "sim", covs=["z1", "z2"], cluster=True, vce=v)
+        add(f"covs_fuzzy_{v}", "sim", covs=["z1", "z2"], fuzzy="t", cluster=True, vce=v)
+        add(f"sim_{v}_all_selectors", "sim", cluster=True, vce=v, all=True)
     (DATA / "cases.json").write_text(json.dumps(cases, indent=1) + "\n")
     print(len(cases), "cases")
+
+    plots = []
+    def addp(name, data, **opts):
+        plots.append({"name": name, "data": data, **opts})
+    for d in ("senate", "sim"):
+        addp(f"{d}_default", d)
+    for m in ("es", "espr", "esmv", "esmvpr", "qs", "qspr", "qsmv", "qsmvpr"):
+        addp(f"sim_{m}", "sim", binselect=m)
+    addp("sim_p2", "sim", p=2)
+    addp("sim_p0", "sim", p=0)
+    addp("sim_nbins", "sim", nbins=20)
+    addp("sim_nbins_two", "sim", nbins=[10, 15])
+    addp("sim_scale", "sim", scale=2)
+    addp("sim_h_triangular", "sim", h=0.5, kernel="triangular")
+    addp("sim_h_two_epanechnikov", "sim", h=[0.4, 0.6], kernel="epanechnikov")
+    addp("sim_weights", "sim", weights=True)
+    addp("sim_covs", "sim", covs=["z1", "z2"])
+    addp("sim_covs_collinear", "sim", covs=["z1", "z2", "z3"])
+    addp("sim_support", "sim", support=[-1.2, 1.1])
+    addp("sim_cutoff", "sim", c=0.2, y="y2")
+    addp("discrete_default", "sim", x="xd")
+    addp("discrete_qs", "sim", x="xd", binselect="qs")
+    addp("discrete_off", "sim", x="xd", masspoints="off")
+    addp("discrete_off_qsmv", "sim", x="xd", masspoints="off", binselect="qsmv")
+    addp("discrete_covs", "sim", x="xd", covs=["z1"])
+    (DATA / "plot_cases.json").write_text(json.dumps(plots, indent=1) + "\n")
+    print(len(plots), "plot cases")
 
 
 if __name__ == "__main__":

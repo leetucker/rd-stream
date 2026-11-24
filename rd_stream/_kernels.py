@@ -363,3 +363,82 @@ def weights(t, f, use_f, k, h, kern):
         w = kernel_value(t[i], h, kern)
         out[i] = w * f[i] if use_f else w
     return out
+
+
+@njit(cache=True)
+def cluster_sums(t, f, use_f, k, h, kern, P, res, cl, n_clusters):
+    """Per cluster, over the window [0, k): L_g = sum w r r' and
+    u_g = sum w r e (w = f K/h, r = [1, .., t^(P-1)], e the residual), and
+    whether the cluster has a unit in the window."""
+    L = np.zeros((n_clusters, P, P))
+    u = np.zeros((n_clusters, P))
+    seen = np.zeros(n_clusters, np.bool_)
+    r = np.empty(P)
+    for i in range(k):
+        g = cl[i]
+        seen[g] = True
+        w = kernel_value(t[i], h, kern)
+        if use_f:
+            w *= f[i]
+        if w == 0.0:
+            continue
+        pw = 1.0
+        for j in range(P):
+            r[j] = pw
+            pw *= t[i]
+        for j in range(P):
+            u[g, j] += w * r[j] * res[i]
+            for jj in range(P):
+                L[g, j, jj] += w * r[j] * r[jj]
+    return L, u, seen
+
+
+@njit(cache=True)
+def cluster_sums_qq(t, f, use_f, k, b, kern, Pq, Q, res, cl, n_clusters):
+    """Per cluster, over the window [0, k), the sums of rdrobust's CRV2 and
+    CRV3 robust variance with h != b: L_g = sum w_b r_q r_q',
+    P_g = sum Q_i r_q', uQ_g = sum Q_i e and uq_g = sum w_b r_q e."""
+    P = Q.shape[1]
+    L = np.zeros((n_clusters, Pq, Pq))
+    Pg = np.zeros((n_clusters, P, Pq))
+    uQ = np.zeros((n_clusters, P))
+    uq = np.zeros((n_clusters, Pq))
+    seen = np.zeros(n_clusters, np.bool_)
+    r = np.empty(Pq)
+    for i in range(k):
+        g = cl[i]
+        seen[g] = True
+        w = kernel_value(t[i], b, kern)
+        if use_f:
+            w *= f[i]
+        pw = 1.0
+        for j in range(Pq):
+            r[j] = pw
+            pw *= t[i]
+        e = res[i]
+        for j in range(P):
+            uQ[g, j] += Q[i, j] * e
+            for jj in range(Pq):
+                Pg[g, j, jj] += Q[i, j] * r[jj]
+        if w == 0.0:
+            continue
+        for j in range(Pq):
+            uq[g, j] += w * r[j] * e
+            for jj in range(Pq):
+                L[g, j, jj] += w * r[j] * r[jj]
+    return L, Pg, uQ, uq, seen
+
+
+@njit(cache=True)
+def cluster_score_sums(scores, cl, n_clusters):
+    """Each cluster's sum of score rows, and which clusters are present (the
+    additive part of `cluster_meat`, for windows taken a slab at a time)."""
+    k, P = scores.shape
+    sums = np.zeros((n_clusters, P))
+    seen = np.zeros(n_clusters, np.bool_)
+    for i in range(k):
+        g = cl[i]
+        seen[g] = True
+        for j in range(P):
+            sums[g, j] += scores[i, j]
+    return sums, seen

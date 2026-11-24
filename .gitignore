@@ -22,6 +22,7 @@ benchmarks/data/
 *.stdout
 *.stderr
 benchmarks/gate/results/
+benchmarks/perf/results/
 
 # working notes for the sessions that build the package, kept locally
 PLAN.md

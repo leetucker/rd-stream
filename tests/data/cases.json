@@ -486,5 +486,187 @@
    "z2"
   ],
   "all": true
+ },
+ {
+  "name": "sim_cr2",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr2"
+ },
+ {
+  "name": "sim_cr2_manual_hb",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr2",
+  "h": 0.2
+ },
+ {
+  "name": "sim_cr2_manual_h_b",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr2",
+  "h": 0.2,
+  "b": 0.3
+ },
+ {
+  "name": "sim_cr2_weights",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr2",
+  "weights": true
+ },
+ {
+  "name": "sim_cr2_msetwo_epanechnikov",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr2",
+  "bwselect": "msetwo",
+  "kernel": "epanechnikov"
+ },
+ {
+  "name": "sim_cr2_p2",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr2",
+  "p": 2
+ },
+ {
+  "name": "senate_cr2",
+  "data": "senate",
+  "cluster": true,
+  "vce": "cr2"
+ },
+ {
+  "name": "discrete_cr2",
+  "data": "sim",
+  "x": "xd",
+  "cluster": true,
+  "vce": "cr2"
+ },
+ {
+  "name": "fuzzy_cr2",
+  "data": "sim",
+  "fuzzy": "t",
+  "cluster": true,
+  "vce": "cr2"
+ },
+ {
+  "name": "covs_cr2",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "cluster": true,
+  "vce": "cr2"
+ },
+ {
+  "name": "covs_fuzzy_cr2",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "fuzzy": "t",
+  "cluster": true,
+  "vce": "cr2"
+ },
+ {
+  "name": "sim_cr2_all_selectors",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr2",
+  "all": true
+ },
+ {
+  "name": "sim_cr3",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr3"
+ },
+ {
+  "name": "sim_cr3_manual_hb",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr3",
+  "h": 0.2
+ },
+ {
+  "name": "sim_cr3_manual_h_b",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr3",
+  "h": 0.2,
+  "b": 0.3
+ },
+ {
+  "name": "sim_cr3_weights",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr3",
+  "weights": true
+ },
+ {
+  "name": "sim_cr3_msetwo_epanechnikov",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr3",
+  "bwselect": "msetwo",
+  "kernel": "epanechnikov"
+ },
+ {
+  "name": "sim_cr3_p2",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr3",
+  "p": 2
+ },
+ {
+  "name": "senate_cr3",
+  "data": "senate",
+  "cluster": true,
+  "vce": "cr3"
+ },
+ {
+  "name": "discrete_cr3",
+  "data": "sim",
+  "x": "xd",
+  "cluster": true,
+  "vce": "cr3"
+ },
+ {
+  "name": "fuzzy_cr3",
+  "data": "sim",
+  "fuzzy": "t",
+  "cluster": true,
+  "vce": "cr3"
+ },
+ {
+  "name": "covs_cr3",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "cluster": true,
+  "vce": "cr3"
+ },
+ {
+  "name": "covs_fuzzy_cr3",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ],
+  "fuzzy": "t",
+  "cluster": true,
+  "vce": "cr3"
+ },
+ {
+  "name": "sim_cr3_all_selectors",
+  "data": "sim",
+  "cluster": true,
+  "vce": "cr3",
+  "all": true
  }
 ]

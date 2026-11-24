@@ -1,0 +1,161 @@
+[
+ {
+  "name": "senate_default",
+  "data": "senate"
+ },
+ {
+  "name": "sim_default",
+  "data": "sim"
+ },
+ {
+  "name": "sim_es",
+  "data": "sim",
+  "binselect": "es"
+ },
+ {
+  "name": "sim_espr",
+  "data": "sim",
+  "binselect": "espr"
+ },
+ {
+  "name": "sim_esmv",
+  "data": "sim",
+  "binselect": "esmv"
+ },
+ {
+  "name": "sim_esmvpr",
+  "data": "sim",
+  "binselect": "esmvpr"
+ },
+ {
+  "name": "sim_qs",
+  "data": "sim",
+  "binselect": "qs"
+ },
+ {
+  "name": "sim_qspr",
+  "data": "sim",
+  "binselect": "qspr"
+ },
+ {
+  "name": "sim_qsmv",
+  "data": "sim",
+  "binselect": "qsmv"
+ },
+ {
+  "name": "sim_qsmvpr",
+  "data": "sim",
+  "binselect": "qsmvpr"
+ },
+ {
+  "name": "sim_p2",
+  "data": "sim",
+  "p": 2
+ },
+ {
+  "name": "sim_p0",
+  "data": "sim",
+  "p": 0
+ },
+ {
+  "name": "sim_nbins",
+  "data": "sim",
+  "nbins": 20
+ },
+ {
+  "name": "sim_nbins_two",
+  "data": "sim",
+  "nbins": [
+   10,
+   15
+  ]
+ },
+ {
+  "name": "sim_scale",
+  "data": "sim",
+  "scale": 2
+ },
+ {
+  "name": "sim_h_triangular",
+  "data": "sim",
+  "h": 0.5,
+  "kernel": "triangular"
+ },
+ {
+  "name": "sim_h_two_epanechnikov",
+  "data": "sim",
+  "h": [
+   0.4,
+   0.6
+  ],
+  "kernel": "epanechnikov"
+ },
+ {
+  "name": "sim_weights",
+  "data": "sim",
+  "weights": true
+ },
+ {
+  "name": "sim_covs",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2"
+  ]
+ },
+ {
+  "name": "sim_covs_collinear",
+  "data": "sim",
+  "covs": [
+   "z1",
+   "z2",
+   "z3"
+  ]
+ },
+ {
+  "name": "sim_support",
+  "data": "sim",
+  "support": [
+   -1.2,
+   1.1
+  ]
+ },
+ {
+  "name": "sim_cutoff",
+  "data": "sim",
+  "c": 0.2,
+  "y": "y2"
+ },
+ {
+  "name": "discrete_default",
+  "data": "sim",
+  "x": "xd"
+ },
+ {
+  "name": "discrete_qs",
+  "data": "sim",
+  "x": "xd",
+  "binselect": "qs"
+ },
+ {
+  "name": "discrete_off",
+  "data": "sim",
+  "x": "xd",
+  "masspoints": "off"
+ },
+ {
+  "name": "discrete_off_qsmv",
+  "data": "sim",
+  "x": "xd",
+  "masspoints": "off",
+  "binselect": "qsmv"
+ },
+ {
+  "name": "discrete_covs",
+  "data": "sim",
+  "x": "xd",
+  "covs": [
+   "z1"
+  ]
+ }
+]
