@@ -439,8 +439,10 @@ def _stats(x, y, left, right, cl):
     stats["mass"] = (1 - left.M_side / left.n_side >= 0.2) or (1 - right.M_side / right.n_side >= 0.2)
     if cl is not None:
         split = int(np.searchsorted(x, left.c, side="left"))
-        stats.update(clustered=True, G_l=int(np.unique(cl[:split]).size),
-                     G_r=int(np.unique(cl[split:]).size))
+        # the codes are 0..G-1: count those present on each side in one linear pass
+        # (np.unique sorted them: 19 s of a 34 s clustered fit at 10^8 rows)
+        stats.update(clustered=True, G_l=int(np.count_nonzero(np.bincount(cl[:split]))),
+                     G_r=int(np.count_nonzero(np.bincount(cl[split:]))))
     return stats
 
 
