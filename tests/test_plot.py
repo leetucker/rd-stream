@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 import rd_stream as rd
 
@@ -33,6 +34,12 @@ def _kwargs(case):
 
 def _close(a, b):
     np.testing.assert_allclose(np.asarray(a, float), np.asarray(b, float), rtol=RTOL, atol=1e-10)
+
+
+def _same_frame(a, b):
+    # equal to rounding: numba compiles for the CPU it runs on, so sums can round
+    # differently between machines
+    assert_frame_equal(a, b, rel_tol=1e-10, abs_tol=1e-12)
 
 
 def _params():
@@ -116,7 +123,7 @@ def test_plot_options_and_profile():
         rd.rd_plot("y ~ x", SIM, ci=100)
     a, b = rd.rd_plot("y ~ x", SIM, ci=0.9), rd.rd_plot("y ~ x", SIM, ci=90)
     assert a.ci == b.ci == 90.0
-    assert a.bins.equals(b.bins)
+    _same_frame(a.bins, b.bins)
     from hdfe_stream.core.profile import Profile
 
     assert isinstance(rd.rd_plot("y ~ x", SIM, profile=True), Profile)
@@ -134,7 +141,8 @@ def test_several_outcomes_match_single_calls(x, memory):
     assert isinstance(m, rd.RDPlotMulti) and len(m) == 2 and m.outcomes == ["y", "y2"]
     for name in ("y", "y2"):
         one = rd.rd_plot(f"{name} ~ {x}", dfm, **kw)
-        assert m[name].bins.equals(one.bins) and m[name].fit.equals(one.fit)
+        _same_frame(m[name].bins, one.bins)
+        _same_frame(m[name].fit, one.fit)
         assert m[name].n_bins == one.n_bins and m[name].memory == one.memory
     assert m[1] is m["y2"] and [p.outcome for p in m] == ["y", "y2"]
 

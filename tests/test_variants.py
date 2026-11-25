@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
+from polars.testing import assert_frame_equal
 
 import rd_stream as rd
 
@@ -17,8 +18,14 @@ def _outside(df, x, dl, dr, c=0.0):
                      .otherwise(pl.col(x) - c >= dr))
 
 
+def _same_frame(a, b):
+    # equal to rounding: numba compiles for the CPU it runs on, so sums can round
+    # differently between machines
+    assert_frame_equal(a, b, rel_tol=1e-10, abs_tol=1e-12)
+
+
 def _same(a, b, rtol):
-    np.testing.assert_allclose(a.beta, b.beta, rtol=rtol, atol=1e-13)
+    np.testing.assert_allclose(a.beta, b.beta, rtol=rtol, atol=1e-12)
     np.testing.assert_allclose(a.se, b.se, rtol=rtol)
     np.testing.assert_allclose(a.bandwidth, b.bandwidth, rtol=rtol)
     assert (a.n_obs, a.n_bandwidth) == (b.n_obs, b.n_bandwidth)
@@ -30,7 +37,7 @@ def _same(a, b, rtol):
     ("x", "rows", {"treatment": "t", "covariates": ["z1"]})])
 def test_donut_is_the_fit_without_those_rows(x, memory, kw):
     df = pl.read_parquet(SIM)
-    rtol = 1e-12 if memory == "rows" else 1e-9
+    rtol = 1e-10 if memory == "rows" else 1e-9
     for d, (dl, dr) in ((0.02, (0.02, 0.02)), ((0.01, 0.03), (0.01, 0.03))):
         a = rd.rd_estimate(f"y ~ {x}", df, donut=d, memory=memory, **kw)
         b = rd.rd_estimate(f"y ~ {x}", _outside(df, x, dl, dr), memory=memory, **kw)
@@ -51,7 +58,7 @@ def test_donut_drops_the_cutoff_itself_and_lists():
     assert [f.fml for f in m][:4] == ["y ~ x [h=0.3] [donut=0]", "y ~ x [h=0.4] [donut=0]",
                                       "y2 ~ x [h=0.3] [donut=0]", "y2 ~ x [h=0.4] [donut=0]"]
     one = rd.rd_estimate("y2 ~ x", SIM, donut=(0.02, 0.03), bandwidth=0.4)
-    _same([f for f in m if f.fml == "y2 ~ x [h=0.4] [donut=(0.02, 0.03)]"][0], one, 1e-12)
+    _same([f for f in m if f.fml == "y2 ~ x [h=0.4] [donut=(0.02, 0.03)]"][0], one, 1e-10)
     with pytest.raises(ValueError, match="donut must be"):
         rd.rd_estimate("y ~ x", SIM, donut=-0.1)
     with pytest.raises(ValueError, match="donut must be"):
@@ -61,10 +68,12 @@ def test_donut_drops_the_cutoff_itself_and_lists():
 def test_donut_in_rd_bandwidth_and_rd_plot():
     df = pl.read_parquet(SIM)
     keep = _outside(df, "x", 0.05, 0.05)
-    assert rd.rd_bandwidth("y ~ x", df, donut=0.05).table.equals(
-        rd.rd_bandwidth("y ~ x", keep).table)
+    _same_frame(rd.rd_bandwidth("y ~ x", df, donut=0.05).table,
+                rd.rd_bandwidth("y ~ x", keep).table)
     a, b = rd.rd_plot("y ~ x", df, donut=0.05), rd.rd_plot("y ~ x", keep)
-    assert a.bins.equals(b.bins) and a.fit.equals(b.fit) and a.donut == (0.05, 0.05)
+    _same_frame(a.bins, b.bins)
+    _same_frame(a.fit, b.fit)
+    assert a.donut == (0.05, 0.05)
     with pytest.raises(ValueError, match="one donut"):
         rd.rd_bandwidth("y ~ x", df, donut=[0.01, 0.02])
     with pytest.raises(ValueError, match="one donut"):
@@ -83,7 +92,7 @@ def test_placebo_cutoffs_use_their_side_only(memory):
     for c, rows in ((-0.3, df.filter(pl.col("x") < 0)), (0.2, df.filter(pl.col("x") >= 0))):
         one = rd.rd_estimate("y2 ~ x", rows, cutoff=c, memory=memory)
         fit = [f for f in p.fits if f.depvar == "y2" and f.cutoff == c][0]
-        _same(fit, one, 1e-12 if memory == "rows" else 1e-9)
+        _same(fit, one, 1e-10 if memory == "rows" else 1e-9)
         row = t.filter((pl.col("outcome") == "y2") & (pl.col("cutoff") == c)).row(0, named=True)
         assert row["estimate"] == pytest.approx(one.estimate, rel=1e-12)
         assert (row["robust_low"], row["robust_high"]) == pytest.approx(one.robust_ci, rel=1e-12)
@@ -144,7 +153,7 @@ def test_donut_closed_ends(closed, memory):
     assert df.filter(x.abs() == d).height > 0
     a = rd.rd_estimate("y ~ xd", df, donut=d, donut_closed=closed, memory=memory)
     b = rd.rd_estimate("y ~ xd", keep, memory=memory)
-    _same(a, b, 1e-12 if memory != "window" else 1e-9)
+    _same(a, b, 1e-10 if memory != "window" else 1e-9)
     assert a.donut_closed == closed
     p = rd.rd_plot("y ~ xd", df, donut=d, donut_closed=closed, memory="rows")
     assert p.n == rd.rd_plot("y ~ xd", keep, memory="rows").n
@@ -157,4 +166,4 @@ def test_donut_closed_errors_and_zero_radius():
     # a zero radius drops nothing on its side, closed or not: x = cutoff stays
     a = rd.rd_estimate("y ~ xd", df, donut=(0.05, 0.0), donut_closed="both")
     b = rd.rd_estimate("y ~ xd", df.filter((pl.col("xd") >= 0) | (pl.col("xd") < -0.05)))
-    _same(a, b, 1e-12)
+    _same(a, b, 1e-10)
