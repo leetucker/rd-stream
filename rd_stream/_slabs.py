@@ -486,12 +486,11 @@ class SlabSide:
                 continue
             f, use_f = loc._f()
             if vce in ("cr2", "cr3"):
-                Lj, uj, sj = K.cluster_sums(loc.t, f, use_f, lk, h, kern, P, res,
-                                            loc.cl[:lk], self.n_clusters)
+                Lj, uj, sj = loc.cluster_sums(lk, h, kern, P, res)
                 L, u, seen = ((Lj, uj, sj) if L is None else (L + Lj, u + uj, seen | sj))
             else:
                 scores = K.poly_scores(loc.t, f, use_f, lk, h, kern, P, res)
-                sj_, seen_j = K.cluster_score_sums(scores, loc.cl[:lk], self.n_clusters)
+                sj_, seen_j = loc.cluster_score_sums(scores, lk)
                 sums, seen = ((sj_, seen_j) if sums is None else (sums + sj_, seen | seen_j))
         if not signed:
             return gram(out, P - 1)
@@ -550,23 +549,22 @@ class SlabSide:
                 _, res_b = self._residuals(j, loc, lk, svec, win, vce, 0, b, kern,
                                            fit.beta_q @ svec, fit.Gq_inv, Pq, True)
             f, use_f = loc._f()
-            cl, G = loc.cl[:lk], self.n_clusters
             if vce in ("cr2", "cr3"):
-                add("cl", *K.cluster_sums(loc.t, f, use_f, lk, h, kern, P, res_h, cl, G))
+                add("cl", *loc.cluster_sums(lk, h, kern, P, res_h))
                 if hb_match:
-                    add("rb", *K.cluster_sums(loc.t, f, use_f, lk, h, kern, Pq, res_b, cl, G))
+                    add("rb", *loc.cluster_sums(lk, h, kern, Pq, res_b))
                 else:
                     _, Q = K.final_rows(loc.t, f, use_f, lk, h, b, kern, p, q, fit.g, fit.L)
-                    add("rb", *K.cluster_sums_qq(loc.t, f, use_f, lk, b, kern, Pq,
-                                                 np.ascontiguousarray(Q), res_b, cl, G))
+                    add("rb", *loc.cluster_sums_qq(lk, b, kern, Pq, np.ascontiguousarray(Q),
+                                                   res_b))
                 continue
             RW, Q = K.final_rows(loc.t, f, use_f, lk, h, b, kern, p, q, fit.g, fit.L)
-            add("cl", *K.cluster_score_sums(RW * res_h[:, None], cl, G))
+            add("cl", *loc.cluster_score_sums(RW * res_h[:, None], lk))
             if hb_match:
-                add("rb", *K.cluster_score_sums(
-                    K.poly_scores(loc.t, f, use_f, lk, h, kern, Pq, res_b), cl, G))
+                add("rb", *loc.cluster_score_sums(
+                    K.poly_scores(loc.t, f, use_f, lk, h, kern, Pq, res_b), lk))
             else:
-                add("rb", *K.cluster_score_sums(Q * res_b[:, None], cl, G))
+                add("rb", *loc.cluster_score_sums(Q * res_b[:, None], lk))
         if vce in ("cr2", "cr3"):
             mode = 2 if vce == "cr2" else 3
             meat_cl = _cluster.meat(*acc["cl"], fit.Gp_inv, mode)

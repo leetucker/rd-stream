@@ -123,6 +123,7 @@ class Side:
         self.f = f
         self.cl = cl
         self.n_clusters = n_clusters
+        self._clo = [None]       # the rows ordered by cluster, shared with copies of the side
         self.run_start = K.runs(self.d)
         self.M = self.run_start.shape[0] - 1          # distinct values of x held
         self.n_units = x.shape[0]
@@ -147,6 +148,7 @@ class Side:
         else:
             out = Side(self.x, self.c, cnt=self.cnt, SD=self.D, M2=self.M2, x_sd=x_sd,
                        y_sd=y_sd, dT=self.dT)
+        out._clo = self._clo
         if math.isfinite(self.radius_raw):
             out.held_window(self.radius_raw,
                             None if self.full is None else self.full.scaled(x_sd, y_sd),
@@ -260,16 +262,35 @@ class Side:
             return gram(self.moments_ss(ss, k, h, kern, 2 * (P - 1)), P - 1)
         f, use_f = self._f()
         if vce in ("cr2", "cr3"):
-            L, u, seen = K.cluster_sums(self.t, f, use_f, k, h, kern, P, res, self.cl[:k],
-                                        self.n_clusters)
+            L, u, seen = self.cluster_sums(k, h, kern, P, res)
             return _cluster.meat(L, u, seen, Ginv, 2 if vce == "cr2" else 3)
         scores = K.poly_scores(self.t, f, use_f, k, h, kern, P, res)
         return self.cluster_meat(scores, k, P)
 
     def cluster_meat(self, scores, k, k_df):
-        M, G = K.cluster_meat(scores, self.cl[:k], self.n_clusters)
+        M, G = K.cluster_meat_ordered(scores, k, *self._cluster_order())
         n = k
         return M * ((n - 1) / (n - k_df)) * (G / (G - 1))
+
+    # ---- per-cluster sums over the window [0, k), a cluster per thread
+
+    def _cluster_order(self):
+        if self._clo[0] is None:
+            self._clo[0] = K.cluster_order(self.cl, self.n_clusters)
+        return self._clo[0]
+
+    def cluster_sums(self, k, h, kern, P, res):
+        f, use_f = self._f()
+        return K.cluster_sums_ordered(self.t, f, use_f, k, h, kern, P, res,
+                                      *self._cluster_order())
+
+    def cluster_sums_qq(self, k, b, kern, Pq, Q, res):
+        f, use_f = self._f()
+        return K.cluster_sums_qq_ordered(self.t, f, use_f, k, b, kern, Pq, Q, res,
+                                         *self._cluster_order())
+
+    def cluster_score_sums(self, scores, k):
+        return K.cluster_score_sums_ordered(scores, k, *self._cluster_order())
 
     # ---- the window sums the steps take (a slab-backed side has the same)
 
@@ -319,20 +340,16 @@ class Side:
             ss_h, res_h = cs.residuals(k, vce, 0, h, kern, fit.beta_p @ svec, fit.Gp_inv, P)
             ss_b, res_b = cs.residuals(k, vce, 0, b, kern, fit.beta_q @ svec, fit.Gq_inv, Pq)
         f, use_f = self._f()
-        cl = self.cl[:k]
         if vce in ("cr2", "cr3"):
             mode = 2 if vce == "cr2" else 3
-            L, u, seen = K.cluster_sums(self.t, f, use_f, k, h, kern, P, res_h, cl,
-                                        self.n_clusters)
+            L, u, seen = self.cluster_sums(k, h, kern, P, res_h)
             meat_cl = _cluster.meat(L, u, seen, fit.Gp_inv, mode)
             if hb_match:
-                L, u, seen = K.cluster_sums(self.t, f, use_f, k, h, kern, Pq, res_b, cl,
-                                            self.n_clusters)
+                L, u, seen = self.cluster_sums(k, h, kern, Pq, res_b)
                 return meat_cl, _cluster.meat(L, u, seen, fit.Gq_inv, mode)
             _, Q = K.final_rows(self.t, f, use_f, k, h, b, kern, p, q, fit.g, fit.L)
-            L, Pg, uQ, uq, seen = K.cluster_sums_qq(self.t, f, use_f, k, b, kern, Pq,
-                                                    np.ascontiguousarray(Q), res_b, cl,
-                                                    self.n_clusters)
+            L, Pg, uQ, uq, seen = self.cluster_sums_qq(k, b, kern, Pq,
+                                                       np.ascontiguousarray(Q), res_b)
             return meat_cl, _cluster.meat_qq(L, Pg, uQ, uq, seen, fit.Gq_inv, mode)
         RW, Q = K.final_rows(self.t, f, use_f, k, h, b, kern, p, q, fit.g, fit.L)
         meat_cl = self.cluster_meat(RW * res_h[:, None], k, P)

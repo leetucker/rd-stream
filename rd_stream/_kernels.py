@@ -279,29 +279,6 @@ def final_rows(t, f, use_f, k, h, b, kern, p, q, g, L):
     return RW, Q
 
 
-@njit(cache=True)
-def cluster_meat(scores, cl, n_clusters):
-    """sum over clusters of (sum of the cluster's score rows) outer itself,
-    and the number of clusters present."""
-    k, P = scores.shape
-    sums = np.zeros((n_clusters, P))
-    seen = np.zeros(n_clusters, np.bool_)
-    for i in range(k):
-        g = cl[i]
-        seen[g] = True
-        for j in range(P):
-            sums[g, j] += scores[i, j]
-    M = np.zeros((P, P))
-    G = 0
-    for g in range(n_clusters):
-        if seen[g]:
-            G += 1
-            for j in range(P):
-                for jj in range(P):
-                    M[j, jj] += sums[g, j] * sums[g, jj]
-    return M, G
-
-
 @njit(parallel=True, cache=True)
 def collapse_runs(x, y, start):
     """Count, sum of y and within-value sum of squares of each run of equal x
@@ -365,80 +342,153 @@ def weights(t, f, use_f, k, h, kern):
     return out
 
 
+# ---------------------------------------------------------------------------
+# per-cluster sums in parallel: the side's rows ordered by cluster once (a stable
+# counting sort), each cluster's rows in the window a leading run of its block (the
+# window is a prefix of the rows, and a cluster's rows keep their order), so threads
+# take whole clusters and add each one's rows in the same order as the serial loop
+
 @njit(cache=True)
-def cluster_sums(t, f, use_f, k, h, kern, P, res, cl, n_clusters):
-    """Per cluster, over the window [0, k): L_g = sum w r r' and
-    u_g = sum w r e (w = f K/h, r = [1, .., t^(P-1)], e the residual), and
-    whether the cluster has a unit in the window."""
-    L = np.zeros((n_clusters, P, P))
-    u = np.zeros((n_clusters, P))
-    seen = np.zeros(n_clusters, np.bool_)
-    r = np.empty(P)
-    for i in range(k):
+def cluster_order(cl, n_clusters):
+    """The rows' indices ordered by cluster (stably), and where each
+    cluster's block starts (n_clusters + 1 entries)."""
+    n = cl.shape[0]
+    starts = np.zeros(n_clusters + 1, np.int64)
+    for i in range(n):
+        starts[cl[i] + 1] += 1
+    for g in range(n_clusters):
+        starts[g + 1] += starts[g]
+    pos = starts[:n_clusters].copy()
+    order = np.empty(n, np.int64)
+    for i in range(n):
         g = cl[i]
-        seen[g] = True
-        w = kernel_value(t[i], h, kern)
-        if use_f:
-            w *= f[i]
-        if w == 0.0:
-            continue
-        pw = 1.0
-        for j in range(P):
-            r[j] = pw
-            pw *= t[i]
-        for j in range(P):
-            u[g, j] += w * r[j] * res[i]
-            for jj in range(P):
-                L[g, j, jj] += w * r[j] * r[jj]
+        order[pos[g]] = i
+        pos[g] += 1
+    return order, starts
+
+
+@njit(parallel=True, cache=True)
+def cluster_sums_ordered(t, f, use_f, k, h, kern, P, res, order, starts):
+    """Per cluster, over the window [0, k), a cluster per thread:
+    L_g = sum w r r' and u_g = sum w r e (w = f K/h, r = [1, .., t^(P-1)],
+    e the residual), and whether the cluster has a unit in the window."""
+    G = starts.shape[0] - 1
+    L = np.zeros((G, P, P))
+    u = np.zeros((G, P))
+    seen = np.zeros(G, np.bool_)
+    for g in prange(G):
+        r = np.empty(P)
+        for idx in range(starts[g], starts[g + 1]):
+            i = order[idx]
+            if i >= k:
+                break
+            seen[g] = True
+            w = kernel_value(t[i], h, kern)
+            if use_f:
+                w *= f[i]
+            if w == 0.0:
+                continue
+            pw = 1.0
+            for j in range(P):
+                r[j] = pw
+                pw *= t[i]
+            for j in range(P):
+                u[g, j] += w * r[j] * res[i]
+                for jj in range(P):
+                    L[g, j, jj] += w * r[j] * r[jj]
     return L, u, seen
 
 
-@njit(cache=True)
-def cluster_sums_qq(t, f, use_f, k, b, kern, Pq, Q, res, cl, n_clusters):
-    """Per cluster, over the window [0, k), the sums of rdrobust's CRV2 and
-    CRV3 robust variance with h != b: L_g = sum w_b r_q r_q',
-    P_g = sum Q_i r_q', uQ_g = sum Q_i e and uq_g = sum w_b r_q e."""
+@njit(parallel=True, cache=True)
+def cluster_sums_qq_ordered(t, f, use_f, k, b, kern, Pq, Q, res, order, starts):
+    """Per cluster, over the window [0, k), a cluster per thread, the sums of
+    rdrobust's CRV2 and CRV3 robust variance with h != b: L_g = sum w_b r_q
+    r_q', P_g = sum Q_i r_q', uQ_g = sum Q_i e and uq_g = sum w_b r_q e."""
     P = Q.shape[1]
-    L = np.zeros((n_clusters, Pq, Pq))
-    Pg = np.zeros((n_clusters, P, Pq))
-    uQ = np.zeros((n_clusters, P))
-    uq = np.zeros((n_clusters, Pq))
-    seen = np.zeros(n_clusters, np.bool_)
-    r = np.empty(Pq)
-    for i in range(k):
-        g = cl[i]
-        seen[g] = True
-        w = kernel_value(t[i], b, kern)
-        if use_f:
-            w *= f[i]
-        pw = 1.0
-        for j in range(Pq):
-            r[j] = pw
-            pw *= t[i]
-        e = res[i]
-        for j in range(P):
-            uQ[g, j] += Q[i, j] * e
-            for jj in range(Pq):
-                Pg[g, j, jj] += Q[i, j] * r[jj]
-        if w == 0.0:
-            continue
-        for j in range(Pq):
-            uq[g, j] += w * r[j] * e
-            for jj in range(Pq):
-                L[g, j, jj] += w * r[j] * r[jj]
+    G = starts.shape[0] - 1
+    L = np.zeros((G, Pq, Pq))
+    Pg = np.zeros((G, P, Pq))
+    uQ = np.zeros((G, P))
+    uq = np.zeros((G, Pq))
+    seen = np.zeros(G, np.bool_)
+    for g in prange(G):
+        r = np.empty(Pq)
+        for idx in range(starts[g], starts[g + 1]):
+            i = order[idx]
+            if i >= k:
+                break
+            seen[g] = True
+            w = kernel_value(t[i], b, kern)
+            if use_f:
+                w *= f[i]
+            pw = 1.0
+            for j in range(Pq):
+                r[j] = pw
+                pw *= t[i]
+            e = res[i]
+            for j in range(P):
+                uQ[g, j] += Q[i, j] * e
+                for jj in range(Pq):
+                    Pg[g, j, jj] += Q[i, j] * r[jj]
+            if w == 0.0:
+                continue
+            for j in range(Pq):
+                uq[g, j] += w * r[j] * e
+                for jj in range(Pq):
+                    L[g, j, jj] += w * r[j] * r[jj]
     return L, Pg, uQ, uq, seen
 
 
-@njit(cache=True)
-def cluster_score_sums(scores, cl, n_clusters):
-    """Each cluster's sum of score rows, and which clusters are present (the
-    additive part of `cluster_meat`, for windows taken a slab at a time)."""
-    k, P = scores.shape
-    sums = np.zeros((n_clusters, P))
-    seen = np.zeros(n_clusters, np.bool_)
-    for i in range(k):
-        g = cl[i]
-        seen[g] = True
-        for j in range(P):
-            sums[g, j] += scores[i, j]
+@njit(parallel=True, cache=True)
+def cluster_score_sums_ordered(scores, k, order, starts):
+    """Each cluster's sum of the score rows [0, k), and which clusters are
+    present (the additive part of CRV1's meat, for windows taken a slab at a
+    time), a cluster per thread."""
+    P = scores.shape[1]
+    G = starts.shape[0] - 1
+    sums = np.zeros((G, P))
+    seen = np.zeros(G, np.bool_)
+    for g in prange(G):
+        for idx in range(starts[g], starts[g + 1]):
+            i = order[idx]
+            if i >= k:
+                break
+            seen[g] = True
+            for j in range(P):
+                sums[g, j] += scores[i, j]
     return sums, seen
+
+
+@njit(parallel=True, cache=True)
+def cluster_meat_ordered(scores, k, order, starts):
+    """CRV1's meat over the score rows [0, k): the sum over clusters of each
+    cluster's score sum outer itself (added in chunks of clusters, a P x P
+    total per chunk), and the number of clusters present."""
+    P = scores.shape[1]
+    G = starts.shape[0] - 1
+    nchunk = max(1, min(256, G // 1024))
+    step = (G + nchunk - 1) // nchunk if G else 0
+    part = np.zeros((nchunk, P, P))
+    count = np.zeros(nchunk, np.int64)
+    for c in prange(nchunk):
+        s = np.empty(P)
+        for g in range(c * step, min(G, (c + 1) * step)):
+            for j in range(P):
+                s[j] = 0.0
+            any_ = False
+            for idx in range(starts[g], starts[g + 1]):
+                i = order[idx]
+                if i >= k:
+                    break
+                any_ = True
+                for j in range(P):
+                    s[j] += scores[i, j]
+            if any_:
+                count[c] += 1
+                for j in range(P):
+                    for jj in range(P):
+                        part[c, j, jj] += s[j] * s[jj]
+    M = np.zeros((P, P))
+    for c in range(nchunk):
+        M += part[c]
+    return M, int(count.sum())
