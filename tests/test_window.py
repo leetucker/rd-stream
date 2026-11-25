@@ -219,7 +219,31 @@ def test_profile_and_errors():
     disk = [c for c in p.components if c.where == "disk"]
     assert disk and disk[0].expected == 4000 * 8 * 3     # x, y, y2
     assert p.notes["slab_rows"] > 0
-    with pytest.raises(ValueError, match="not rd_plot"):
-        rd.rd_plot("y ~ x", SIM, memory="window")
+    q = rd.rd_plot("y ~ x", SIM, memory="window", profile=True)
+    names = [c.name for c in q.components]
+    assert "slabs held in memory" in names and "slabs on disk" in names
+    assert "rows within the first window" not in names
     with pytest.raises(ValueError, match="strictly inside"):
         rd.rd_estimate("y ~ x", SIM, memory="window", cutoff=50.0)
+
+
+def test_rd_plot_window_options(monkeypatch, tmp_path):
+    # several outcomes, a donut, missing values per outcome, and "auto" when the rows do not
+    # fit: the window path, with the results of holding the rows
+    monkeypatch.setattr(_window, "_SLAB_ROWS", 300)
+    df = pl.read_parquet(SIM)
+    holes = np.random.default_rng(3).random(df.height) < 0.05
+    dfm = df.with_columns(y2=pl.when(pl.Series(holes)).then(None).otherwise(pl.col("y2")))
+    a = rd.rd_plot("y + y2 ~ x", dfm, memory="window", donut=0.02, workdir=tmp_path)
+    b = rd.rd_plot("y + y2 ~ x", dfm, memory="rows", donut=0.02)
+    for pa, pb in zip(a, b, strict=True):
+        assert pa.memory == "window" and pa.n_bins == pb.n_bins and pa.n == pb.n
+        np.testing.assert_allclose(pa.bins["y_mean"], pb.bins["y_mean"], rtol=1e-12)
+        np.testing.assert_allclose(pa.bins["se"], pb.bins["se"], rtol=1e-10)
+        np.testing.assert_allclose(pa.fit["y"], pb.fit["y"], rtol=1e-9, atol=1e-10)
+    real = _memory.rows_bytes
+    monkeypatch.setattr(_memory, "rows_bytes", lambda n, *x: real(n, *x) * 1e6)
+    monkeypatch.setattr(_window, "_SLAB_ROWS", 300)
+    r = rd.rd_plot("y ~ x", SIM, workdir=tmp_path)
+    assert r.memory == "window"
+    assert not any(tmp_path.iterdir())

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import math
 import time
 from collections.abc import Sequence
@@ -157,8 +158,8 @@ class _Data:
         if self.by_value:
             t0 = time.perf_counter()
             self.t_name = treatment
-            self.units = _read_by_value(as_lazy(data), running, outcomes, treatment,
-                                        self.covariates)
+            self.units, self.t_range = _read_by_value(as_lazy(data), running, outcomes,
+                                                      treatment, self.covariates)
             self.read_sort_s = time.perf_counter() - t0
             self.n_clusters = 0
             return
@@ -200,6 +201,87 @@ def _data_cleanup(self):
 _Data.cleanup = _data_cleanup
 
 
+def _data_subset(self, mask_of):
+    """A view of the rows (or values) whose running variable `mask_of` keeps:
+    a donut hole, or one side of the cutoff for a placebo cutoff. The rows
+    and by-value paths only; the window path reads with a filter instead."""
+    import copy
+
+    v = copy.copy(self)
+    if self.by_value:
+        v.units, v.t_range = {}, {}
+        for y, (xu, cnt, SD, M2) in self.units.items():
+            m = mask_of(xu)
+            v.units[y] = (xu[m], cnt[m], np.ascontiguousarray(SD[m]),
+                          np.ascontiguousarray(M2[m]))
+            if y in self.t_range:
+                lo, hi = self.t_range[y]
+                v.t_range[y] = (lo[m], hi[m])
+        return v
+    m = mask_of(self.x)
+    v.x = self.x[m]
+    v.ys = {y: a[m] for y, a in self.ys.items()}
+    for name in ("cl", "w", "t", "Z"):
+        a = getattr(self, name)
+        setattr(v, name, None if a is None else a[m])
+    return v
+
+
+_Data.subset = _data_subset
+
+
+@dataclass(frozen=True)
+class _Variant:
+    """One fit's sample and cutoff: the rows a donut hole or a placebo
+    cutoff's side keeps (`mask(x)` on held data, `expr(running)` for the
+    window path's reads; None: every row), labeled by `tag` in the formula."""
+    cutoff: float
+    mask: object = None
+    expr: object = None
+    tag: str = ""
+    donut: tuple | None = None
+
+
+def _donuts(donut):
+    """A donut option as a list of (left, right) radii, or [None]."""
+    if donut is None:
+        return [None]
+    many = donut if isinstance(donut, list) else [donut]
+    out = []
+    for d in many:
+        if d is None:
+            out.append(None)
+            continue
+        v = (d, d) if isinstance(d, (int, float, np.integer, np.floating)) else tuple(d)
+        try:
+            pair = tuple(float(a) for a in v)
+        except (TypeError, ValueError):
+            pair = ()
+        if len(pair) != 2 or not all(math.isfinite(a) and a >= 0 for a in pair):
+            raise ValueError(f"donut must be 0 or more, or a (left, right) pair of them, "
+                             f"not {d!r}")
+        out.append(None if pair == (0, 0) else (float(pair[0]), float(pair[1])))
+    return out
+
+
+def _donut_variant(c, d, label):
+    """The rows outside a donut hole: on the left, x <= c - d_left; on the
+    right (x >= c), x >= c + d_right."""
+    if d is None:
+        return _Variant(c, tag="donut=0" if label else "")
+    dl, dr = d
+
+    def mask(x):
+        return np.where(x < c, c - x >= dl, x - c >= dr)
+
+    def expr(running):
+        x = pl.col(running).cast(pl.Float64)
+        return pl.when(x < c).then(c - x >= dl).otherwise(x - c >= dr)
+
+    tag = f"donut={dl:g}" if dl == dr else f"donut=({dl:g}, {dr:g})"
+    return _Variant(c, mask, expr, tag if label else "", d)
+
+
 def _finite(c):
     e = pl.col(c).cast(pl.Float64)
     return e.is_not_null() & e.is_not_nan()
@@ -216,6 +298,9 @@ def _read_by_value(lf, running, outcomes, treatment, covariates):
         ok = pl.all_horizontal([_finite(c) for c in cols])
         n = ok.sum()
         aggs.append(n.alias(f"n{i}"))
+        if treatment:                     # the take-up's range per value (perfect compliance)
+            tc = pl.col(treatment).cast(pl.Float64).filter(ok)
+            aggs += [tc.min().alias(f"tlo{i}"), tc.max().alias(f"thi{i}")]
         v = [pl.col(c).cast(pl.Float64).filter(ok) for c in cols]
         for j in range(len(cols)):
             aggs.append(v[j].sum().alias(f"s{i}_{j}"))
@@ -226,7 +311,7 @@ def _read_by_value(lf, running, outcomes, treatment, covariates):
     df = (lf.filter(keep).group_by(pl.col(running).cast(pl.Float64))
           .agg(aggs).collect(engine="streaming").sort(running))
     x = np.array(df[running].to_numpy(), dtype=np.float64)
-    out = {}
+    out, ranges = {}, {}
     nc = 1 + len(extra)
     for i, y in enumerate(outcomes):
         cnt = df[f"n{i}"].to_numpy().astype(np.int64)
@@ -238,7 +323,9 @@ def _read_by_value(lf, running, outcomes, treatment, covariates):
                 M2[:, j, jj] = M2[:, jj, j] = df[f"m{i}_{j}_{jj}"].to_numpy()
         out[y] = (x[has], cnt[has], np.ascontiguousarray(SD[has]),
                   np.ascontiguousarray(M2[has]))
-    return out
+        if treatment:
+            ranges[y] = (df[f"tlo{i}"].to_numpy()[has], df[f"thi{i}"].to_numpy()[has])
+    return out, ranges
 
 
 def _sides_from_units(xu, cnt, SD, M2, c, dT=0):
@@ -381,6 +468,7 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
                 regularization: float = 1.0, scale: float = 1.0,
                 treatment: str | None = None, sharp_bandwidth: bool = False,
                 covariates: Sequence[str] | str | None = None,
+                donut=None,
                 memory: str = "auto",
                 max_memory_gb: float | None = None, memory_reserve: float | None = None,
                 workdir: str | None = None, n_threads: int | None = None,
@@ -471,6 +559,13 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
         same coefficients on both sides, which leaves the estimand unchanged
         when they are balanced at the cutoff and can shorten the intervals.
         Collinear covariates are dropped with a warning.
+    donut : float, (left, right) pair, or list of them, optional
+        A donut hole: the observations within this distance of the cutoff
+        are left out (on the left, x > cutoff - donut; on the right,
+        cutoff <= x < cutoff + donut, so a positive radius also drops
+        x = cutoff), and the whole fit, bandwidth selection included, runs
+        on the rest. A list gives one fit per radius, from one read (0 for
+        no hole), labeled ``[donut=...]``.
     memory : {"auto", "rows", "by_value", "window"}
         How the data are held. "rows" reads and sorts the rows used, and
         fits on every row. "by_value" groups the rows by the value of the
@@ -532,37 +627,80 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
                         o=o, hint=_largest_bandwidth(grid, bias_bandwidth, bandwidth_ratio))
     if profile:
         return path
-    with _threads(n_threads):
-        window = _window_options(path, o, running, outcomes, cluster, treatment, covs,
-                                 max_memory_gb, memory_reserve,
-                                 _largest_bandwidth(grid, bias_bandwidth, bandwidth_ratio),
-                                 workdir)
-        data = _Data(data, running, outcomes, cluster, weights, treatment, covs, memory=path,
-                     window=window)
-        fits = []
-        for y_name in outcomes:
-            def fit_outcome(y_name=y_name):
-                grids = (None, None)
-                if len(grid) > 1 and cluster is None:
-                    left, right, _, _ = _prepare(data, running, y_name, o, cluster, weights,
-                                                 collapse)
-                    grids = _grid_sides(left, right, o, grid, bias_bandwidth, bandwidth_ratio)
-                return [_fit_one(data, running, y_name, o, bw, bias_bandwidth, bandwidth_ratio,
-                                 cluster, weights, collapse, treatment, sharp_bandwidth, grids)
-                        for bw in grid]
-            try:
-                fits += _widening(data, fit_outcome)
-            except BaseException:
-                data.cleanup()
-                raise
-        data.cleanup()
-    _PREPARED.clear()
+    donuts = _donuts(donut)
+    variants = [_donut_variant(o.cutoff, d, len(donuts) > 1) for d in donuts]
+    fits = _fit_variants(data, running, outcomes, o, cluster, weights, treatment, covs, path,
+                         max_memory_gb, memory_reserve, workdir, n_threads, grid,
+                         bias_bandwidth, bandwidth_ratio, collapse, sharp_bandwidth, variants)
     if len(fits) == 1:
         return fits[0]
-    if len(grid) > 1:
-        for r in fits:
-            r.fml = f"{r.fml} [h={r.bandwidth[0]:.6g}]"
     return RDMulti(fits)
+
+
+def _fit_variants(source, running, outcomes, o, cluster, weights, treatment, covs, path,
+                  max_memory_gb, memory_reserve, workdir, n_threads, grid, bias_bandwidth,
+                  rho, collapse, sharp_bandwidth, variants, skipped=None):
+    """The fits of every outcome x bandwidth, for each variant (cutoff and
+    rows kept). The rows and by-value paths read once and take each
+    variant's rows from what they hold; the window path reads each variant
+    with its filter. With a `skipped` list, a variant and outcome whose fit
+    raises ValueError (a cutoff too near the edge of its rows, say) is
+    recorded there as (variant, outcome, message) instead."""
+    fits = []
+    with _threads(n_threads):
+        base = None
+        if path != "window":
+            base = _Data(source, running, outcomes, cluster, weights, treatment, covs,
+                         memory=path)
+        for v in variants:
+            ov = o if v.cutoff == o.cutoff else dataclasses.replace(o, cutoff=v.cutoff)
+            if base is None:
+                window = _window_options(path, ov, running, outcomes, cluster, treatment, covs,
+                                         max_memory_gb, memory_reserve,
+                                         _largest_bandwidth(grid, bias_bandwidth, rho), workdir)
+                window["keep"] = None if v.expr is None else v.expr(running)
+                try:
+                    data = _Data(source, running, outcomes, cluster, weights, treatment, covs,
+                                 memory=path, window=window)
+                except ValueError as e:
+                    if skipped is None:
+                        raise
+                    skipped += [(v, y_name, str(e)) for y_name in outcomes]
+                    continue
+            else:
+                data = base if v.mask is None else base.subset(v.mask)
+            new = []
+            for y_name in outcomes:
+                def fit_outcome(y_name=y_name, data=data, ov=ov):
+                    grids = (None, None)
+                    if len(grid) > 1 and cluster is None:
+                        left, right, _, _ = _prepare(data, running, y_name, ov, cluster,
+                                                     weights, collapse)
+                        grids = _grid_sides(left, right, ov, grid, bias_bandwidth, rho)
+                    return [_fit_one(data, running, y_name, ov, bw, bias_bandwidth, rho,
+                                     cluster, weights, collapse, treatment, sharp_bandwidth,
+                                     grids)
+                            for bw in grid]
+                try:
+                    new += _widening(data, fit_outcome)
+                except ValueError as e:
+                    if skipped is None:
+                        data.cleanup()
+                        raise
+                    skipped.append((v, y_name, str(e)))
+                except BaseException:
+                    data.cleanup()
+                    raise
+            data.cleanup()
+            for r in new:
+                r.donut = v.donut
+                if len(grid) > 1:
+                    r.fml = f"{r.fml} [h={r.bandwidth[0]:.6g}]"
+                if v.tag:
+                    r.fml = f"{r.fml} [{v.tag}]"
+            fits += new
+    _PREPARED.clear()
+    return fits
 
 
 _PREPARED: dict = {}
@@ -610,9 +748,11 @@ def _window_options(path, o, running, outcomes, cluster, treatment, covs, max_me
 
 
 def _memory_path(data, running, outcomes, cluster, weights, treatment, covs, collapse, memory,
-                 max_memory_gb, memory_reserve, n_threads, profile, model, o=None, hint=None):
-    """The memory path ("rows", "by_value" or "window"), or the
-    Profile. Without options `o` (rd_plot) there is no window path."""
+                 max_memory_gb, memory_reserve, n_threads, profile, model, o=None, hint=None,
+                 slabs=False):
+    """The memory path ("rows", "by_value" or "window"), or the Profile.
+    Without options `o` there is no window path; `slabs`: its rows always
+    go to slabs (rd_plot)."""
     from stream_limits import detect_cpus
 
     from . import _memory
@@ -636,14 +776,14 @@ def _memory_path(data, running, outcomes, cluster, weights, treatment, covs, col
                 return WindowData(data, running, outcomes, cluster, weights, treatment, covs,
                                   read=False, **opts)
         return _memory.profile(lf, data, running=running, outcomes=outcomes, extra=extra,
-                               model=model, window=window, **kw)
+                               model=model, window=window, slabs=slabs, **kw)
     path, _ = _memory.choose(lf, data, running=running, n_read=1 + len(outcomes) + len(extra),
                              n_outcomes=len(outcomes), window=o is not None, **kw)
     return path
 
 
 def _prepare(data, running, y_name, o, cluster, weights, collapse):
-    key = (data, y_name, collapse)        # the object, so that its id is not reused
+    key = (data, y_name, collapse, o.cutoff)    # the object, so that its id is not reused
     if key in _PREPARED:
         return _PREPARED[key]
     _PREPARED.clear()
@@ -687,10 +827,13 @@ def _prepare(data, running, y_name, o, cluster, weights, collapse):
     if t is not None:
         split = int(np.searchsorted(x, c, side="left"))
         tl, tr = t[:split], t[split:]
-        if np.var(tl) == 0 and np.var(tr) == 0 and abs(tl.mean() - tr.mean()) < 1.4901161193847656e-08:
+        # a constant take-up on a side: min = max, R's var() == 0 (np.var can leave a
+        # rounding residue for a constant whose mean is inexact, such as 0.1)
+        const_l, const_r = bool(tl.min() == tl.max()), bool(tr.min() == tr.max())
+        if const_l and const_r and abs(tl.mean() - tr.mean()) < 1.4901161193847656e-08:
             raise ValueError("the treatment take-up has no variation and no jump at the cutoff: "
                              "the fuzzy design is not identified")
-        stats["perfect_compliance"] = bool(np.var(tl) == 0 or np.var(tr) == 0)
+        stats["perfect_compliance"] = const_l or const_r
     _PREPARED[key] = (left, right, stats, use_units)
     return _PREPARED[key]
 
@@ -830,10 +973,11 @@ def _prepare_units(data, running, y_name, o):
     stats["mass"] = (1 - left.M_side / left.n_side >= 0.2) or (1 - right.M_side / right.n_side >= 0.2)
     if dT:
         split = int(np.searchsorted(xu, c, side="left"))
-        tm, tv = SD[:, 1] / cntf, M2[:, 1, 1]
+        tlo, thi = data.t_range[y_name]
 
         def constant(sl):
-            return bool((tv[sl] == 0).all() and (tm[sl] == tm[sl][0]).all())
+            # min = max over the side, as on the rows path (R's var() == 0)
+            return bool(tlo[sl].min() == thi[sl].max())
 
         def mean(sl):
             return float(SD[sl, 1].sum() / cntf[sl].sum())
@@ -930,12 +1074,14 @@ def rd_bandwidth(fml: str, data, *, cutoff: float = 0.0, selector: str = "mserd"
                  restrict_bandwidth: bool = True, standardize: bool = True,
                  regularization: float = 1.0, treatment: str | None = None,
                  sharp_bandwidth: bool = False, covariates: Sequence[str] | str | None = None,
+                 donut=None,
                  memory: str = "auto",
                  max_memory_gb: float | None = None, memory_reserve: float | None = None,
                  workdir: str | None = None, n_threads: int | None = None,
                  profile: bool = False) -> BandwidthResult:
     """Data-driven bandwidths, as R's rdbwselect computes them (all ten
-    selectors with ``all_selectors=True``). The options are `rd_estimate`'s."""
+    selectors with ``all_selectors=True``). The options are `rd_estimate`'s;
+    `donut` takes one radius or (left, right) pair here."""
     outcomes, running = _parse(fml)
     _PREPARED.clear()                     # a call that failed may have left some
     if len(outcomes) != 1:
@@ -952,11 +1098,18 @@ def rd_bandwidth(fml: str, data, *, cutoff: float = 0.0, selector: str = "mserd"
                         "rd_bandwidth", o=o)
     if profile:
         return path
+    if isinstance(donut, list):
+        raise ValueError("rd_bandwidth takes one donut: a radius or a (left, right) pair")
+    v = _donut_variant(o.cutoff, _donuts(donut)[0], False)
     with _threads(n_threads):
         window = _window_options(path, o, running, outcomes, cluster, treatment, covs,
                                  max_memory_gb, memory_reserve, None, workdir)
+        if window is not None:
+            window["keep"] = None if v.expr is None else v.expr(running)
         d = _Data(data, running, outcomes, cluster, weights, treatment, covs, memory=path,
                   window=window)
+        if v.mask is not None and path != "window":
+            d = d.subset(v.mask)
 
         def select():
             left, right, stats, _ = _prepare(d, running, outcomes[0], o, cluster, weights,

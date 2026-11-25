@@ -1,0 +1,22 @@
+# R and the R packages of the benchmarks' "(R)" configurations, from
+# conda-forge:
+#
+#   micromamba create -p benchmarks/external/.r -f benchmarks/external/environment.yml
+#
+# (or conda/mamba with the same arguments). rdrobust is not on conda-forge:
+# install it into that R from the dated CRAN snapshot the reference results
+# were made with (rdrobust 4.1.1),
+#
+#   benchmarks/external/.r/bin/Rscript -e 'install.packages("rdrobust",
+#       repos = "https://packagemanager.posit.co/cran/2026-10-15")'
+#
+# which ec2/remote/setup_external.sh does. See benchmarks/README.md.
+name: rd-stream-benchmarks-r
+channels:
+  - conda-forge
+dependencies:
+  - r-base=4.5.3
+  - r-arrow=25.0.1
+  - r-jsonlite=2.0.0
+  - r-ggplot2=4.0.3        # rdrobust imports it (for rdplot's figure)
+  - r-mass=7.3_66          # and this

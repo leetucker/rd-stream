@@ -59,8 +59,8 @@ def test_auto_groups_by_value_when_the_rows_do_not_fit(monkeypatch):
         rd.rd_estimate("y ~ xd", SIM, vcov={"CRV1": "cl"})
     with pytest.raises(MemoryError, match="memory budget"):
         rd.rd_estimate("y ~ x", SIM)
-    # rd_plot has no window path
-    with pytest.raises(MemoryError, match="to hold and sort"):
+    # rd_plot takes the window path too, whose slabs do not fit either here
+    with pytest.raises(MemoryError, match="memory budget"):
         rd.rd_plot("y ~ x", SIM)
 
 

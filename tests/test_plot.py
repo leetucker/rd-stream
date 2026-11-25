@@ -39,18 +39,27 @@ def _params():
     out = []
     for name, case in CASES.items():
         out.append(pytest.param(name, "rows", id=f"{name}-rows"))
+        # the window path: the rows in slabs of at most 300 on disk, read in order
+        out.append(pytest.param(name, "slabs", id=f"{name}-slabs"))
         if case.get("x") == "xd" and not case.get("weights") and case.get("masspoints") != "off":
             out.append(pytest.param(name, "by_value", id=f"{name}-by_value"))
     return out
 
 
 @pytest.mark.parametrize("name,memory", _params())
-def test_rdplot(name, memory):
+def test_rdplot(name, memory, monkeypatch, tmp_path):
     case, ref = CASES[name], REFS[name]
+    kw = _kwargs(case)
+    if memory == "slabs":
+        from rd_stream import _window
+
+        monkeypatch.setattr(_window, "_SLAB_ROWS", 300)
+        memory, kw["workdir"] = "window", tmp_path
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         r = rd.rd_plot(f"{case.get('y', 'y')} ~ {case.get('x', 'x')}",
-                       DATA / f"{case['data']}.parquet", memory=memory, **_kwargs(case))
+                       DATA / f"{case['data']}.parquet", memory=memory, **kw)
+    assert r.memory == memory
     _close(r.coef["left"], ref["coef_left"])
     _close(r.coef["right"], ref["coef_right"])
     assert list(r.n_bins) == ref["J"]
@@ -73,6 +82,8 @@ def test_rdplot(name, memory):
     _close(b["ci_high"], ref["rdplot_ci_r"])
     _close(r.fit["x"], ref["poly_x"])
     _close(r.fit["y"], ref["poly_y"])
+    if memory == "window":
+        assert not any(tmp_path.iterdir())         # the slabs are removed after the plot
 
 
 SIM = DATA / "sim.parquet"

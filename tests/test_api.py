@@ -141,3 +141,37 @@ def test_small_sample_uses_the_whole_range():
     r = rd.rd_estimate("y ~ x", df)
     assert r.bandwidth_selector == "manual"
     assert r.bandwidth == (1.0, 1.0)
+
+
+def test_rows_to_report():
+    r = rd.rd_estimate("y ~ x", SIM)
+    full = r.tidy()
+    w = r.with_rows(["robust", "Conventional, robust inference"])
+    assert w.coefnames == ["Robust", "Conventional, robust inference"]
+    tab = w.tidy()
+    # the conventional estimate, with the robust standard error, test and interval
+    assert tab["Estimate"][1] == full["Estimate"][0]
+    assert tab["Std. Error"][1] == full["Std. Error"][2]
+    assert tab["Pr(>|t|)"][1] == pytest.approx(full["Pr(>|t|)"][2], rel=1e-14)
+    ci, ci_full = w.confint(), r.confint()
+    assert ci.row(1)[1:] == pytest.approx(ci_full.row(2)[1:], rel=1e-14)
+    assert w.robust_ci == pytest.approx(r.robust_ci, rel=1e-14)
+    assert r.with_rows("Bias-corrected").tidy().row(0) == full.row(1)
+    with pytest.raises(ValueError, match="rows are"):
+        r.with_rows("naive")
+    with pytest.raises(ValueError, match="three rows"):
+        w.with_rows("Robust")
+    m = rd.rd_estimate("y + y2 ~ x", SIM).with_rows("conventional_robust")
+    assert [f.coefnames for f in m] == [["Conventional, robust inference"]] * 2
+
+
+def test_etable_rows():
+    pytest.importorskip("pyfixest")
+    r = rd.rd_estimate("y ~ x", SIM)
+    full = rd.etable(r, type="df")
+    one = rd.etable([r, rd.rd_estimate("y2 ~ x", SIM)], rows="conventional_robust",
+                    type="df")
+    labels = [str(i) for i in one.index]
+    assert any("Conventional, robust inference" in s for s in labels)
+    assert not any("Bias-corrected" in s for s in labels)
+    assert any("Bias-corrected" in str(i) for i in full.index)

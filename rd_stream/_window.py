@@ -63,7 +63,7 @@ class WindowData:
 
     def __init__(self, data, running, outcomes, cluster, weights, treatment, covariates, o,
                  *, per_row_bytes, max_memory_gb, memory_reserve, hint=None, read=True,
-                 workdir=None, slabs=False):
+                 workdir=None, slabs=False, keep=None):
         from hdfe_stream.core.utils import as_lazy
 
         self.running, self.outcomes = running, list(outcomes)
@@ -76,12 +76,15 @@ class WindowData:
         for c in (cluster, weights, treatment, *covariates):
             if c is not None and c not in cols:
                 cols.append(c)
+        keep_rows = keep
         keep = _finite(pl.col(running).cast(pl.Float64))
         for c in (cluster, weights):
             if c is not None:
                 keep &= pl.col(c).is_not_null()
         if weights is not None:
             keep &= pl.col(weights) >= 0
+        if keep_rows is not None:             # a donut hole, or a placebo cutoff's side
+            keep &= keep_rows
         self.data, self.columns, self.keep, self.workdir = data, cols, keep, workdir
         self.value_columns = [c for c in cols if c != cluster]
         self.store, self.slabbed = None, False

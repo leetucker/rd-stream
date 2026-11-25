@@ -23,6 +23,11 @@ benchmarks/data/
 *.stderr
 benchmarks/gate/results/
 benchmarks/perf/results/
+benchmarks/results/work/
+
+# the EC2 tooling names the AWS account's bucket (as in hdfe-stream and the
+# other packages)
+benchmarks/ec2/
 
 # working notes for the sessions that build the package, kept locally
 PLAN.md

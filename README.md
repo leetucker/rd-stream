@@ -13,7 +13,7 @@ few distinct values (ages, test scores, dates), the fit runs on one row per
 value, which is exact.
 
 ```python
-from rd_stream import rd_estimate, rd_plot
+from rd_stream import rd_estimate, rd_placebo, rd_plot
 
 fit = rd_estimate("vote ~ margin", "senate.parquet")
 fit.summary()
@@ -25,6 +25,10 @@ rd_estimate("y ~ x", data, covariates=["z1", "z2"], vcov={"CRV2": "school"})
 
 # a bandwidth grid, from one sort
 rd_estimate("y ~ x", data, bandwidth=[0.1, 0.15, 0.2, 0.25]).estimates()
+
+# robustness: donut holes, and placebo cutoffs on each side of the true one
+rd_estimate("y ~ x", data, donut=[0, 0.01, 0.02])
+rd_placebo("y ~ x", data, placebo_cutoffs=[-0.2, -0.1, 0.1, 0.2]).plot()
 
 # binned means and polynomial fits, as rdplot draws them
 rd_plot("vote ~ margin", "senate.parquet").plot(ci=True)
@@ -44,13 +48,21 @@ rd_plot("vote ~ margin", "senate.parquet").plot(ci=True)
     restriction.
   - A list of bandwidths costs little more than one: each side's sums come from block
     power sums, and the nearest-neighbor residuals are computed once.
+  - `donut=` leaves out the observations within a distance of the cutoff (a radius, a
+    left/right pair, or a list of them for one fit each).
 - `rd_bandwidth` gives rdbwselect's bandwidths, one selector or all ten.
+- `rd_placebo` estimates at placebo cutoffs, each from the observations on its side of
+  the true cutoff only, and draws the estimates with their robust intervals.
 - `rd_plot` gives rdplot's binned means, with its eight ways of choosing the bins, and the
   global polynomial fits. `.plot()` draws them with matplotlib. Several outcomes
   (`"y1 + y2 ~ x"`) share one read and sort, and `.plot()` draws them as a grid of panels.
 - Results have hdfe-stream's reporting: `summary()`, `tidy()`, `confint()` and
   `summary_json()`. With several outcomes or bandwidths, `estimates()` gives one row
   per fit.
+- A fit reports rdrobust's three rows (conventional, bias-corrected, robust).
+  `etable(fits, rows=...)` and `fit.with_rows(...)` choose which to show, including
+  `"conventional_robust"`: the conventional estimate with the robust standard error,
+  test and interval, as many papers report it.
 - `memory=` says how the data are held; the default, `"auto"`, picks the first that
   applies:
   - `"by_value"`: when the running variable has mass points (ages, scores, dates) and
@@ -60,7 +72,8 @@ rd_plot("vote ~ margin", "senate.parquet").plot(ci=True)
     holding the rows.
   - `"rows"`: the rows are read and sorted once, when they fit the memory budget.
   - `"window"`: the full sample's statistics come from streaming passes, and only the
-    rows near the cutoff are held. When a step's window doesn't fit either, the rows
+    rows near the cutoff are held (`rd_plot` reads its rows a slab at a time from disk,
+    since its bins need each side's rows in order). When a step's window doesn't fit either, the rows
     are written to disk in slabs by distance from the cutoff, and each step reads them
     a slab at a time. The results are the same as with `"rows"`. 300 million rows took
     about 4.3 minutes under a 2 GB budget (4 threads).

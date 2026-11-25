@@ -10,9 +10,16 @@
   bandwidth costs well under a millisecond, whatever the number of observations in its
   window.
 - `rd_bandwidth`: rdbwselect's bandwidths, one selector or all ten.
+- `donut=` on `rd_estimate`, `rd_bandwidth` and `rd_plot`: donut holes, one radius, a
+  left/right pair, or a list of them for `rd_estimate` (one fit each, from one read).
+- `rd_placebo`: estimates at placebo cutoffs, each on the observations on its side of
+  the true cutoff, as a table and a figure.
+- `etable(fits, rows=...)` and `RDResult.with_rows(...)`: which of the three rows to report,
+  and a fourth, the conventional estimate with robust inference.
 - `rd_plot`: rdplot's binned means (the eight bin selection methods, or a given number of
   bins) and global polynomial fits, drawn with `.plot()`; several outcomes from one read,
-  drawn as a grid of panels.
+  drawn as a grid of panels; and `memory="window"`, which reads the rows a slab at a time
+  from disk.
 - `memory="auto" | "rows" | "by_value" | "window"`, `max_memory_gb=` and
   `memory_reserve=`. With `"by_value"`, which "auto" takes when the running variable has
   at most half as many distinct values as rows (and the fit has no clusters or weights),

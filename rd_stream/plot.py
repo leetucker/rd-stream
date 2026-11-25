@@ -280,6 +280,7 @@ class RDPlot:
     ci: float
     covariate_coef: np.ndarray | None = None
     memory: str = "rows"
+    donut: tuple | None = None
     timings: dict = field(default_factory=dict)
 
     def plot(self, *, ax=None, ci: bool = False, shade: bool = False, title: str | None = None,
@@ -429,10 +430,10 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
             n_bins=None, bin_method: str = "esmv", bin_scale=None, kernel: str = "uniform",
             bandwidth=None, weights: str | None = None,
             covariates: Sequence[str] | str | None = None, covariates_at: str = "mean",
-            support=None, mass_points: str = "adjust", ci: float = 95.0,
+            support=None, mass_points: str = "adjust", ci: float = 95.0, donut=None,
             memory: str = "auto", max_memory_gb: float | None = None,
-            memory_reserve: float | None = None, n_threads: int | None = None,
-            profile: bool = False) -> RDPlot | RDPlotMulti:
+            memory_reserve: float | None = None, workdir: str | None = None,
+            n_threads: int | None = None, profile: bool = False) -> RDPlot | RDPlotMulti:
     """RD plot data, as R's rdplot computes them: the outcome's means in bins
     of the running variable on each side of the cutoff, and a global
     polynomial fit on each side. Draw it with ``.plot()``.
@@ -479,9 +480,14 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
     ci : float, default 95
         The level of the bins' intervals: in percent (95), or as a fraction
         below 1 (0.95), which is the same.
-    memory, max_memory_gb, memory_reserve, n_threads, profile
+    donut : float or (left, right) pair, optional
+        A donut hole, as in `rd_estimate`: the observations within this
+        distance of the cutoff are left out of the bins and the fits.
+    memory, max_memory_gb, memory_reserve, workdir, n_threads, profile
         As in `rd_estimate`. The by-value path takes the "pr" bin methods
-        only.
+        only. The window path writes the rows to slabs on disk and reads them
+        a slab at a time, in order (every bin method needs each side's rows
+        in order), with the same results as holding them.
 
     Returns
     -------
@@ -521,25 +527,55 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
     # the spacings bin methods need the rows, unless mass points switch them to "pr"
     # (mass_points="adjust", which a running variable "auto" groups by value always has)
     by_value_ok = memory != "auto" or bin_method.endswith("pr") or mass_points == "adjust"
+    # the window path's summary passes take rdrobust's options; the plot uses only its
+    # counts, distinct values, covariates' cross-products and slabs
+    o, _ = api._options(c, 1, None, 0, "triangular", "nearest_neighbor", 3, "adjust", None,
+                        True, True, 1.0, 1.0)
     path = api._memory_path(data, running, outcomes, None, weights, None, covs,
                             "auto" if by_value_ok else "never", memory,
-                            max_memory_gb, memory_reserve, n_threads, profile, "rd_plot")
+                            max_memory_gb, memory_reserve, n_threads, profile, "rd_plot",
+                            o=o, slabs=True)
     if profile:
         return path
+    if isinstance(donut, list):
+        raise ValueError("rd_plot takes one donut: a radius or a (left, right) pair")
+    v = api._donut_variant(c, api._donuts(donut)[0], False)
     with api._threads(n_threads):
-        d = api._Data(data, running, outcomes, None, weights, None, covs, memory=path)
-        read_s = d.read_sort_s
+        if path == "window":
+            from ._plot_slabs import slab_plot_sides
+
+            opts = api._window_options(path, o, running, outcomes, None, None, covs,
+                                       max_memory_gb, memory_reserve, None, workdir)
+            opts.update(slabs=True, keep=None if v.expr is None else v.expr(running))
+            d = api._Data(data, running, outcomes, None, weights, None, covs, memory=path,
+                          window=opts)
+            read_s = d.window.stats_s + d.window.read_s
+
+            def sides_of(y_name):
+                return slab_plot_sides(d.window, y_name, covs, c, weights)
+        else:
+            d = api._Data(data, running, outcomes, None, weights, None, covs, memory=path)
+            read_s = d.read_sort_s
+            if v.mask is not None:
+                d = d.subset(v.mask)
+
+            def sides_of(y_name):
+                return _plot_sides(d, y_name, covs, c)
         plots = []
-        for y_name in outcomes:
-            t1 = time.perf_counter()
-            sides = _plot_sides(d, y_name, covs, c)
-            t2 = time.perf_counter()
-            out = _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern,
-                           kernel, h_given, covs, covariates_at, support, mass_points, ci)
-            out.memory = path
-            out.timings = dict(read_sort_s=read_s, prepare_s=t2 - t1,
-                               plot_s=time.perf_counter() - t2)
-            plots.append(out)
+        try:
+            for y_name in outcomes:
+                t1 = time.perf_counter()
+                sides = sides_of(y_name)
+                t2 = time.perf_counter()
+                out = _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern,
+                               kernel, h_given, covs, covariates_at, support, mass_points, ci)
+                out.memory = path
+                out.donut = v.donut
+                out.timings = dict(read_sort_s=read_s, prepare_s=t2 - t1,
+                                   plot_s=time.perf_counter() - t2)
+                plots.append(out)
+        finally:
+            d.cleanup()
     api._PREPARED.clear()
     return plots[0] if len(plots) == 1 else RDPlotMulti(plots)
 
@@ -557,6 +593,52 @@ class _PlotSide:
     side: object
     n: int
     zsum: np.ndarray | None
+
+    # what `_rd_plot` takes from a side (`_plot_slabs.SlabRows` gives the same from
+    # slabs on disk)
+
+    @property
+    def x_lo(self) -> float:
+        return float(self.x[0])
+
+    @property
+    def x_hi(self) -> float:
+        return float(self.x[-1])
+
+    @property
+    def units(self) -> bool:
+        """Whether the side holds distinct values with counts, not rows."""
+        return self.cnt is not None
+
+    def var_y(self) -> float:
+        return _var_y(self)
+
+    def power_sums(self, A):
+        """sum x^a [1, y, y^2] over the rows, a = 0..A."""
+        if self.cnt is None:
+            V = np.column_stack([np.ones_like(self.x), self.sy, self.sy * self.sy])
+        else:
+            cntf = self.cnt.astype(np.float64)
+            V = np.column_stack([cntf, self.sy, self.m2 + self.sy * self.sy / cntf])
+        return _power_sums(self.x, V, A)
+
+    def selection(self, g1, g2, var_y):
+        cnt = self.cnt if self.cnt is not None else np.zeros(1, np.int64)
+        return _selection_sums(self.x, cnt, self.cnt is None, g1, g2, var_y, self.y_rows)
+
+    def quantile7(self, probs):
+        return _quantile7(self.x, self.cnt, probs)
+
+    def segments(self, e, J):
+        """Per bin [e[b], e[b+1]) of the J (the last open above): which are
+        non-empty, and their rows, sum x, sum y and sum of squares of y."""
+        starts = np.searchsorted(self.x, e[:J], side="left")
+        ends = np.append(starts[1:], self.x.shape[0])
+        nz = ends > starts
+        cnt = self.cnt if self.cnt is not None else np.zeros(1, np.int64)
+        st = _segment_stats(self.x, cnt, self.sy, self.m2 if self.m2.size else np.zeros(1),
+                            self.cnt is None, starts[nz], ends[nz])
+        return nz, st
 
 
 def _plot_sides(d, y_name, covs, c):
@@ -619,12 +701,12 @@ def _var_y(ps):
 
 def _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern, kernel, h_given,
              covs, covariates_at, support, mass_points, ci):
-    from scipy.stats import t as t_dist
+    from scipy import special
 
     from ._engine import partial_z
 
     L, R = sides
-    x_min, x_max = float(L.x[0]), float(R.x[-1])
+    x_min, x_max = L.x_lo, R.x_hi
     if support is not None:
         lo, hi = support
         x_min, x_max = min(x_min, float(lo)), max(x_max, float(hi))
@@ -644,7 +726,7 @@ def _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern, kerne
                           stacklevel=3)
             if mass_points == "adjust" and not method.endswith("pr"):
                 method += "pr"
-    if not method.endswith("pr") and L.cnt is not None and nbins is None:
+    if not method.endswith("pr") and L.units and nbins is None:
         raise ValueError(f"bin_method={method!r} (spacings estimators) needs the rows in order: "
                          "use memory='rows', or a 'pr' bin method")
 
@@ -687,19 +769,13 @@ def _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern, kerne
     sel = []
     var_y = []
     for ps in (L, R):
-        if ps.cnt is None:
-            V = np.column_stack([np.ones_like(ps.x), ps.sy, ps.sy * ps.sy])
-        else:
-            cntf = ps.cnt.astype(np.float64)
-            V = np.column_stack([cntf, ps.sy, ps.m2 + ps.sy * ps.sy / cntf])
-        S = _power_sums(ps.x, V, 2 * kq)
+        S = ps.power_sums(2 * kq)
         Gk = gram(S[:, 0], kq)
         Ginv = _xxinv(Gk)
         g1, g2 = Ginv @ S[:kq + 1, 1], Ginv @ S[:kq + 1, 2]
-        vy = _var_y(ps)
+        vy = ps.var_y()
         var_y.append(vy)
-        cnt = ps.cnt if ps.cnt is not None else np.zeros(1, np.int64)
-        sel.append(_selection_sums(ps.x, cnt, ps.cnt is None, g1, g2, vy, ps.y_rows))
+        sel.append(ps.selection(g1, g2, vy))
     (mu1_l, s2_l, dxs2_l, dx2mu_l, dxdy_l, dy_l), (mu1_r, s2_r, dxs2_r, dx2mu_r, dxdy_r, dy_r) = sel
     B_es = ((range_l ** 2 / (12 * n)) * mu1_l, (range_r ** 2 / (12 * n)) * mu1_r)
     V_es_hat = ((0.5 / range_l) * dxdy_l, (0.5 / range_r) * dxdy_r)
@@ -742,7 +818,7 @@ def _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern, kerne
     if es:
         edges = (_seq_by(x_min, c, range_l / J[0]), _seq_by(c, x_max, range_r / J[1]))
     else:
-        edges = tuple(_quantile7(ps.x, ps.cnt, _seq_by(0.0, 1.0, 1.0 / J[j]))
+        edges = tuple(ps.quantile7(_seq_by(0.0, 1.0, 1.0 / J[j]))
                       for j, ps in enumerate((L, R)))
     rows = []
     lengths = []
@@ -751,17 +827,13 @@ def _rd_plot(sides, y_name, running, c, p, nbins, bin_method, scale, kern, kerne
         Jj = J[j]
         e = e[:Jj + 1]
         lengths.append(np.diff(e))
-        starts = np.searchsorted(ps.x, e[:Jj], side="left")
-        ends = np.append(starts[1:], ps.x.shape[0])
-        nz = ends > starts
-        cnt = ps.cnt if ps.cnt is not None else np.zeros(1, np.int64)
-        st = _segment_stats(ps.x, cnt, ps.sy, ps.m2 if ps.m2.size else np.zeros(1),
-                            ps.cnt is None, starts[nz], ends[nz])
+        nz, st = ps.segments(e, Jj)
         ids = np.arange(1, Jj + 1)[nz]
         nb = st[:, 0]
         sd = np.where(nb > 1, np.sqrt(st[:, 3] / np.maximum(nb - 1, 1)), 0.0)
         se = sd / np.sqrt(nb)
-        quant = t_dist.ppf(1 - (1 - ci / 100) / 2, np.maximum(nb - 1, 1))
+        # the t quantile (scipy.special: importing scipy.stats takes half a second)
+        quant = special.stdtrit(np.maximum(nb - 1, 1), 1 - (1 - ci / 100) / 2)
         ym = st[:, 2] / nb
         rows.append(pl.DataFrame({
             "bin": (ids - Jj - 1) if j == 0 else ids,

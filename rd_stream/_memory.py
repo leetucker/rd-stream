@@ -99,8 +99,7 @@ def choose(lf, source, *, memory, running, n_read, n_columns, n_outcomes, cluste
         return "rows", {}
     if memory == "window":
         if not window:
-            raise ValueError("memory='window' is available in rd_estimate and rd_bandwidth, "
-                         "not rd_plot")
+            raise ValueError("memory='window' is not available here")
         return "window", {}
     budget = MemoryBudget(limit_gb=max_memory_gb, reserve=memory_reserve)
     n = count_rows(lf)
@@ -130,7 +129,8 @@ def choose(lf, source, *, memory, running, n_read, n_columns, n_outcomes, cluste
 
 
 def profile(lf, source, *, running, outcomes, extra, n_columns, clustered, weighted,
-            collapse, memory, threads, max_memory_gb, memory_reserve, model, window=None):
+            collapse, memory, threads, max_memory_gb, memory_reserve, model, window=None,
+            slabs=False):
     """`Profile` of a fit: one streaming pass for the rows kept and the
     distinct values of the running variable, and the components of the path
     ``memory`` would take. `window`: a function returning the window path's
@@ -158,8 +158,7 @@ def profile(lf, source, *, running, outcomes, extra, n_columns, clustered, weigh
         else:
             path = "rows"
     if path == "window" and window is None:
-        raise ValueError("memory='window' is available in rd_estimate and rd_bandwidth, "
-                         "not rd_plot")
+        raise ValueError("memory='window' is not available here")
     comps = [Component("compiled kernels and libraries", _LIBRARIES_GB * 1e9,
                        phases=("fit",))]
     warnings = []
@@ -177,11 +176,12 @@ def profile(lf, source, *, running, outcomes, extra, n_columns, clustered, weigh
 
         W = window()
         per = rows_bytes(1, n_read, n_columns, clustered)
-        held = W.rows_within(W.radius)
-        comps.append(Component("rows within the first window", held * per, held * per * _UPPER,
-                               phases=("fit",),
-                               formula=f"{held:,} rows within {W.radius:.6g} of the cutoff x "
-                                       f"{per:.0f} B"))
+        held = 0 if slabs else W.rows_within(W.radius)
+        if not slabs:
+            comps.append(Component("rows within the first window", held * per,
+                                   held * per * _UPPER, phases=("fit",),
+                                   formula=f"{held:,} rows within {W.radius:.6g} of the "
+                                           f"cutoff x {per:.0f} B"))
         from ._slabs import _HELD
 
         slab_rows = max(int(W.affordable_rows() / (_HELD + 1)), 0)
@@ -199,11 +199,18 @@ def profile(lf, source, *, running, outcomes, extra, n_columns, clustered, weigh
             warnings.append("the exact distinct counts do not fit in one pass: the rows go "
                             "to slabs on disk, and the counts come from them")
         disk = W.n_keep * 8 * (len(W.value_columns) + (W.cluster is not None))
-        comps.append(Component("slabs on disk (when a step's window does not fit in memory)",
+        comps.append(Component("slabs on disk" if slabs else
+                               "slabs on disk (when a step's window does not fit in memory)",
                                disk, disk * _UPPER, where="disk", phases=("fit",),
                                formula=f"{W.n_keep:,} rows x {len(W.value_columns)} columns "
                                        f"x 8 B; read {slab_rows:,} rows a slab"))
-        if math.isfinite(W.r_max) and W.radius >= W.r_max:
+        if slabs:
+            held_b = (_HELD + 1) * slab_rows * per
+            comps.append(Component("slabs held in memory", held_b, held_b * _UPPER,
+                                   phases=("fit",),
+                                   formula=f"{_HELD + 1} slabs x {slab_rows:,} rows x "
+                                           f"{per:.0f} B"))
+        elif math.isfinite(W.r_max) and W.radius >= W.r_max:
             warnings.append("the first window reaches the memory budget's limit: the wider "
                             "steps will read the rows a slab at a time from disk")
     else:
