@@ -1,6 +1,6 @@
 """Time and peak memory of rd-stream against rdrobust (R 4.1.1 and Python
-2.1.1, with its numba kernels) as the data grow from 10,000 to 100 million
-rows.
+2.1.1, with its numba kernels) and diff-diff (4.0.0's RegressionDiscontinuity
+and RDPlot) as the data grow from 10,000 to 100 million rows.
 
     python benchmarks/scale_benchmark.py                        # every model, default sizes
     python benchmarks/scale_benchmark.py --model sharp 1000000 10000000
@@ -13,8 +13,12 @@ The data are simulated (_data.py). The models:
     discrete   y on a running variable with 500 values (mass points)
     plot       rdplot(y, x) / rd_plot("y ~ x"), without drawing
 
-Every library starts from a Parquet file: rdrobust's reads the columns into
-memory (timed as "read"); rd-stream is given the path, with its default
+diff-diff has the nearest-neighbor variance only, so it is not run on the
+clustered model.
+
+Every library starts from a Parquet file: rdrobust and diff-diff read the
+columns into memory (timed as "read"; for diff-diff, into a pandas data
+frame); rd-stream is given the path, with its default
 memory="auto". Each configuration runs in its own process (_harness.py), and
 one that fails, runs out of memory or exceeds the timeout (an hour) is not
 run at larger sizes. The estimates are compared with rd-stream's (column
@@ -44,10 +48,13 @@ from _harness import (
 SCRIPT = Path(__file__).resolve()
 
 CONFIGS = {
-    "sharp": {"rd-stream": "rd", "rdrobust (Python)": "py", "rdrobust (R)": "r"},
+    "sharp": {"rd-stream": "rd", "rdrobust (Python)": "py", "rdrobust (R)": "r",
+              "diff-diff": "dd"},
     "clustered": {"rd-stream": "rd", "rdrobust (Python)": "py", "rdrobust (R)": "r"},
-    "discrete": {"rd-stream": "rd", "rdrobust (Python)": "py", "rdrobust (R)": "r"},
-    "plot": {"rd-stream": "rd", "rdplot (Python)": "py", "rdplot (R)": "r"},
+    "discrete": {"rd-stream": "rd", "rdrobust (Python)": "py", "rdrobust (R)": "r",
+                 "diff-diff": "dd"},
+    "plot": {"rd-stream": "rd", "rdplot (Python)": "py", "rdplot (R)": "r",
+             "diff-diff": "dd"},
 }
 DEFAULT_SIZES = [10_000, 100_000, 1_000_000, 10_000_000, 30_000_000, 100_000_000]
 TIMEOUT_S = 3600
@@ -106,12 +113,41 @@ def run_py(model, path):
             "coefs": coefs}
 
 
+def run_dd(model, path):
+    import numpy as np
+    import pandas as pd
+    import pyarrow.parquet as pq
+
+    x = X[model]
+    t0 = time.perf_counter()
+    t = pq.read_table(path, columns=[x, "y"])
+    df = pd.DataFrame({"y": t["y"].to_numpy(), "x": t[x].to_numpy()})
+    del t
+    t_read = time.perf_counter() - t0
+    import diff_diff
+
+    t0 = time.perf_counter()
+    if model == "plot":
+        r = diff_diff.RDPlot().fit(df, outcome="y", running="x")
+        J = np.ravel(np.asarray(r.J))
+        coefs = {"J_left": int(J[0]), "J_right": int(J[1])}
+    else:
+        r = diff_diff.RegressionDiscontinuity().fit(df, outcome="y", running="x")
+        coefs = {"tau_cl": float(r.att_conventional), "se_rb": float(r.se_robust),
+                 "h": float(r.h_left)}
+    t_fit = time.perf_counter() - t0
+    return {"t_read": t_read, "t_fit": t_fit, "n_obs": int(len(df)), "converged": True,
+            "coefs": coefs}
+
+
 def runner(config, n, path, workdir):
     model, lib = config.split(":", 1)
     if lib == "rd":
         return run_rd(model, path, workdir)
     if lib == "py":
         return run_py(model, path)
+    if lib == "dd":
+        return run_dd(model, path)
     raise ValueError(config)
 
 

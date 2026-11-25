@@ -1,13 +1,13 @@
 # Benchmarks
 
 The benchmarks compare rd-stream with rdrobust in R (4.1.1) and in Python
-(2.1.1, with its numba kernels) on simulated data, from 10,000 to 100 million
-observations:
+(2.1.1, with its numba kernels), and with diff-diff's port of rdrobust and
+rdplot (4.0.0), on simulated data, from 10,000 to 100 million observations:
 
 | Model | What is fitted |
 |---|---|
 | Sharp | rdrobust's defaults: a local linear fit, the `mserd` bandwidths, the nearest-neighbor variance |
-| Clustered | the same, with clusters of about 50 observations (CR1, rd-stream's CRV1) |
+| Clustered | the same, with clusters of about 50 observations (CR1, rd-stream's CRV1); not diff-diff, which has the nearest-neighbor variance only |
 | Discrete | a running variable with 500 values (mass points) |
 | RD plot | rdplot's defaults, without drawing |
 
@@ -15,11 +15,14 @@ The running variable is 2·Beta(2, 4) − 1 (the cutoff at 0, about 30% of the
 observations to its right), and the outcome a cubic in it with a jump of 0.3
 and normal noise. Each configuration runs in its own process, from a Parquet
 file of the n rows. The time includes reading the data: the rdrobust packages
-read the columns into memory first, and rd-stream is given the path. The
-memory is the process's peak resident memory. A configuration that runs out
-of memory or exceeds an hour is not run at larger sizes. Every estimate is
-compared with rd-stream's (every one agrees to within 6e-11). The scripts are in
-the repository's `benchmarks/` folder.
+and diff-diff read the columns into memory first (diff-diff into a pandas
+data frame), and rd-stream is given the path. The memory is the process's
+peak resident memory. A configuration that runs out of memory or exceeds an
+hour is not run at larger sizes. Every estimate is compared with
+rd-stream's: rdrobust's agree to within 6e-11, and diff-diff's to within
+7e-10 (its bandwidths differ from rdrobust's in the ninth digit). The RD
+plots' numbers of bins are the same in all four. The scripts are in the
+repository's `benchmarks/` folder.
 
 ## Machine
 
@@ -28,7 +31,8 @@ cores, 32 GiB of memory (each process limited to 96% of it), and a local NVMe
 disk for the data. The software: Python 3.14.8 with rd-stream 0.1.0,
 hdfe-stream 0.13.1, stream-limits 0.3.0, Polars 2.1.0, NumPy 2.5.5, numba
 0.68.1 and Python rdrobust 2.1.1; R 4.5.3 with rdrobust 4.1.1 and arrow
-25.0.1. Measured on November 25, 2026. Times are in seconds and memory in GB
+25.0.1; diff-diff 4.0.0 (measured later the same day, on the same type of
+instance, with hdfe-stream 0.13.2). Measured on November 25, 2026. Times are in seconds and memory in GB
 (10^9 bytes); each table cell gives the time and the peak memory.
 
 ## Sharp design
@@ -42,14 +46,14 @@ hdfe-stream 0.13.1, stream-limits 0.3.0, Polars 2.1.0, NumPy 2.5.5, numba
 :alt: Time and peak memory against the number of observations, one line per implementation, log-log
 ```
 
-| Rows | rd-stream | Python rdrobust | R rdrobust |
-|---|---|---|---|
-| 10,000 | 0.20 s, 0.3 GB | 0.60 s, 0.4 GB | 0.18 s, 0.3 GB |
-| 100,000 | 0.20 s, 0.3 GB | 0.30 s, 0.4 GB | 0.78 s, 0.3 GB |
-| 1,000,000 | 0.23 s, 0.5 GB | 0.81 s, 0.7 GB | 5.57 s, 0.5 GB |
-| 10,000,000 | 0.89 s, 2.1 GB | 6.58 s, 3.2 GB | 47.83 s, 2.7 GB |
-| 30,000,000 | 2.24 s, 3.4 GB | 19.85 s, 8.6 GB | 139 s, 7.3 GB |
-| 100,000,000 | 7.17 s, 10.8 GB | out of memory | 506 s, 23.5 GB |
+| Rows | rd-stream | Python rdrobust | R rdrobust | diff-diff |
+|---|---|---|---|---|
+| 10,000 | 0.20 s, 0.3 GB | 0.60 s, 0.4 GB | 0.18 s, 0.3 GB | 0.15 s, 0.3 GB |
+| 100,000 | 0.20 s, 0.3 GB | 0.30 s, 0.4 GB | 0.78 s, 0.3 GB | 1.49 s, 0.3 GB |
+| 1,000,000 | 0.23 s, 0.5 GB | 0.81 s, 0.7 GB | 5.57 s, 0.5 GB | 12.43 s, 0.6 GB |
+| 10,000,000 | 0.89 s, 2.1 GB | 6.58 s, 3.2 GB | 47.83 s, 2.7 GB | 121 s, 3.5 GB |
+| 30,000,000 | 2.24 s, 3.4 GB | 19.85 s, 8.6 GB | 139 s, 7.3 GB | 354 s, 9.8 GB |
+| 100,000,000 | 7.17 s, 10.8 GB | out of memory | 506 s, 23.5 GB | out of memory |
 
 ## Clustered
 
@@ -82,14 +86,14 @@ hdfe-stream 0.13.1, stream-limits 0.3.0, Polars 2.1.0, NumPy 2.5.5, numba
 :alt: Time and peak memory against the number of observations, one line per implementation, log-log
 ```
 
-| Rows | rd-stream | Python rdrobust | R rdrobust |
-|---|---|---|---|
-| 10,000 | 0.17 s, 0.3 GB | 0.48 s, 0.3 GB | 0.14 s, 0.3 GB |
-| 100,000 | 0.19 s, 0.3 GB | 0.33 s, 0.4 GB | 0.74 s, 0.3 GB |
-| 1,000,000 | 0.20 s, 0.3 GB | 4.12 s, 0.6 GB | 22.54 s, 0.6 GB |
-| 10,000,000 | 0.23 s, 0.6 GB | 244 s, 2.9 GB | 1,254 s, 2.8 GB |
-| 30,000,000 | 0.25 s, 1.0 GB | 2,033 s, 7.9 GB | over an hour |
-| 100,000,000 | 0.45 s, 2.1 GB | over an hour | not run |
+| Rows | rd-stream | Python rdrobust | R rdrobust | diff-diff |
+|---|---|---|---|---|
+| 10,000 | 0.17 s, 0.3 GB | 0.48 s, 0.3 GB | 0.14 s, 0.3 GB | 0.54 s, 0.2 GB |
+| 100,000 | 0.19 s, 0.3 GB | 0.33 s, 0.4 GB | 0.74 s, 0.3 GB | 1.02 s, 0.2 GB |
+| 1,000,000 | 0.20 s, 0.3 GB | 4.12 s, 0.6 GB | 22.54 s, 0.6 GB | 11.90 s, 0.5 GB |
+| 10,000,000 | 0.23 s, 0.6 GB | 244 s, 2.9 GB | 1,254 s, 2.8 GB | 244 s, 3.0 GB |
+| 30,000,000 | 0.25 s, 1.0 GB | 2,033 s, 7.9 GB | over an hour | 1,668 s, 8.4 GB |
+| 100,000,000 | 0.45 s, 2.1 GB | over an hour | not run | over an hour |
 
 R's fit at 30 million rows ran past the hour, so it was not run at 100
 million.
@@ -105,14 +109,17 @@ million.
 :alt: Time and peak memory against the number of observations, one line per implementation, log-log
 ```
 
-| Rows | rd-stream | Python rdplot | R rdplot |
-|---|---|---|---|
-| 10,000 | 0.20 s, 0.3 GB | 0.18 s, 0.4 GB | 0.21 s, 0.2 GB |
-| 100,000 | 0.16 s, 0.3 GB | 0.28 s, 0.4 GB | 0.56 s, 0.3 GB |
-| 1,000,000 | 0.25 s, 0.5 GB | 1.35 s, 0.8 GB | 4.02 s, 0.7 GB |
-| 10,000,000 | 0.85 s, 2.1 GB | 13.26 s, 5.0 GB | 38.65 s, 5.0 GB |
-| 30,000,000 | 2.23 s, 3.3 GB | 40.78 s, 14.2 GB | 126 s, 14.1 GB |
-| 100,000,000 | 7.16 s, 9.2 GB | out of memory | out of memory |
+| Rows | rd-stream | Python rdplot | R rdplot | diff-diff |
+|---|---|---|---|---|
+| 10,000 | 0.20 s, 0.3 GB | 0.18 s, 0.4 GB | 0.21 s, 0.2 GB | 0.07 s, 0.2 GB |
+| 100,000 | 0.16 s, 0.3 GB | 0.28 s, 0.4 GB | 0.56 s, 0.3 GB | 0.63 s, 0.3 GB |
+| 1,000,000 | 0.25 s, 0.5 GB | 1.35 s, 0.8 GB | 4.02 s, 0.7 GB | 20.90 s, 0.6 GB |
+| 10,000,000 | 0.85 s, 2.1 GB | 13.26 s, 5.0 GB | 38.65 s, 5.0 GB | 1,418 s, 4.5 GB |
+| 30,000,000 | 2.23 s, 3.3 GB | 40.78 s, 14.2 GB | 126 s, 14.1 GB | over an hour |
+| 100,000,000 | 7.16 s, 9.2 GB | out of memory | out of memory | not run |
+
+diff-diff's plot at 30 million rows ran past the hour, so it was not run at
+100 million.
 
 ## What the results show
 
@@ -125,17 +132,22 @@ million.
   against 244 seconds for Python's rdrobust (about 1,000 times longer) and 21
   minutes for R's (about 5,000 times). rdrobust's time grows faster than the
   rows here; neither package finished within an hour at the largest size it
-  was given.
+  was given. diff-diff is as fast as Python's rdrobust on this design.
+- **diff-diff** computes the nearest-neighbor residuals in a Python loop. On
+  the sharp design it takes 121 seconds at 10 million rows, 136 times
+  rd-stream's time and 2.5 times R's. Its RD plot's time grows with about the
+  square of the rows: 21 seconds at 1 million rows and 24 minutes at 10
+  million (about 1,700 times rd-stream's).
 - **Memory.** From 30 million rows, rd-stream uses about half the memory
   of either package on the estimates, and a quarter of it for the plot. At 100 million rows,
-  Python's rdrobust ran out of memory on the sharp design and both packages
-  on the RD plot; R's clustered fit took 29.4 GB of the 32. rd-stream took
+  Python's rdrobust and diff-diff ran out of memory on the sharp design,
+  and both rdrobust packages on the RD plot; R's clustered fit took 29.4 GB of the 32. rd-stream took
   at most 14.6 GB, and its window path (`memory="window"`) fits larger data
   in less.
-- **Small data.** Under 100,000 rows, every implementation takes well under
-  a second. R's rdrobust estimates fastest at 10,000 rows (0.12 to 0.18
-  seconds against rd-stream's 0.17 to 0.20, which is mostly loading its
-  compiled kernels).
+- **Small data.** At 10,000 rows, every implementation takes well under a
+  second, and some are a little faster than rd-stream (0.17 to 0.20 seconds,
+  mostly loading its compiled kernels): R's rdrobust takes 0.12 to 0.18
+  seconds, diff-diff 0.15 on the sharp design and 0.07 for the plot.
 
 ## Threads
 
