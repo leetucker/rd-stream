@@ -38,5 +38,7 @@
   it).
 - `profile=True`: the rows, the distinct values of the running variable, the memory path
   and its memory and disk, without fitting.
+- Documentation (docs/, Sphinx) and examples on the U.S. Senate elections data and on
+  ten million simulated rows (examples/).
 - Agreement with R's rdrobust 4.1.1 within 1e-8 on 104 option combinations of rdrobust and
   rdbwselect, and 27 of rdplot (tests/).

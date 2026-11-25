@@ -41,6 +41,7 @@ dependencies = [
 Homepage = "https://github.com/leetucker/rd-stream"
 Source = "https://github.com/leetucker/rd-stream"
 Issues = "https://github.com/leetucker/rd-stream/issues"
+Documentation = "https://leetucker.github.io/rd-stream/"
 
 [project.optional-dependencies]
 benchmark = ["matplotlib>=3.7", "psutil>=5.9", "rdrobust>=2.1.1", "diff-diff>=4.0"]

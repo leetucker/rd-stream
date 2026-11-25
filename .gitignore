@@ -13,9 +13,10 @@ docs/_build/
 # the sibling packages do not track it either
 uv.lock
 
-# simulated data
+# simulated and downloaded data
 benchmarks/gate/data/
 benchmarks/data/
+examples/data/
 
 # run logs and results carry the paths and state of the machine they ran on
 *.log

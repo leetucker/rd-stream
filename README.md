@@ -36,6 +36,9 @@ rd_plot("vote ~ margin", "senate.parquet").plot(ci=True)
 
 **Version 0.1.0.dev0**, in development.
 
+Documentation, with examples on the U.S. Senate elections data, is at
+<https://leetucker.github.io/rd-stream/>.
+
 ## What it does
 
 - `rd_estimate` covers sharp and fuzzy designs, regression kinks (`derivative=1`) and

@@ -49,8 +49,11 @@ class RDResult(RegressionResult):
     robust test and interval (which are about the bias-corrected estimate),
     as papers often report rdrobust's results.
 
-    Attributes beyond `RegressionResult`'s
-    ---------------------------------------
+    The attributes below are beyond hdfe-stream's `RegressionResult`'s
+    (`beta`, `vcov`, `se`, `n_obs`, ...).
+
+    Attributes
+    ----------
     running : str
         The running variable.
     cutoff : float
