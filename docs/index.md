@@ -53,9 +53,10 @@ Use something else when:
   calculations (rdpower), or honest confidence intervals (RDHonest). These
   are not in rd-stream yet.
 
-*Placeholder: one sentence with the headline numbers from the EC2 scale
-benchmark (rd-stream against R's and Python's rdrobust at 10 million rows),
-linking to [Benchmarks](benchmarks/index.md).*
+At 10 million observations, rd-stream's default fit takes 0.9 seconds,
+against 6.6 for Python's rdrobust and 48 for R's; with a discrete running
+variable, it takes 0.23 seconds against 4 and 21 minutes. See
+[Benchmarks](benchmarks/index.md).
 
 ## How it is fast
 
