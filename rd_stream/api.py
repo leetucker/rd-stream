@@ -240,6 +240,7 @@ class _Variant:
     expr: object = None
     tag: str = ""
     donut: tuple | None = None
+    donut_closed: str = "none"
 
 
 def _donuts(donut):
@@ -264,22 +265,38 @@ def _donuts(donut):
     return out
 
 
-def _donut_variant(c, d, label):
-    """The rows outside a donut hole: on the left, x <= c - d_left; on the
-    right (x >= c), x >= c + d_right."""
+DONUT_CLOSED = ("none", "left", "right", "both")
+
+
+def _donut_variant(c, d, label, closed="none"):
+    """The rows outside a donut hole, the interval (c - d_left, c + d_right)
+    around the cutoff (which x = c is in): open at both ends ("none", so the
+    rows at the radius are kept), or closed at its "left" end, its "right"
+    end or "both" (those rows dropped too), as Polars' is_between's `closed`.
+    A radius of 0 drops nothing on its side."""
+    if closed not in DONUT_CLOSED:
+        raise ValueError(f"donut_closed must be one of {DONUT_CLOSED}, not {closed!r}")
     if d is None:
         return _Variant(c, tag="donut=0" if label else "")
     dl, dr = d
+    strict_l = dl > 0 and closed in ("left", "both")     # drop x = c - d_left too
+    strict_r = dr > 0 and closed in ("right", "both")    # drop x = c + d_right too
 
     def mask(x):
-        return np.where(x < c, c - x >= dl, x - c >= dr)
+        left = (c - x > dl) if strict_l else (c - x >= dl)
+        right = (x - c > dr) if strict_r else (x - c >= dr)
+        return np.where(x < c, left, right)
 
     def expr(running):
         x = pl.col(running).cast(pl.Float64)
-        return pl.when(x < c).then(c - x >= dl).otherwise(x - c >= dr)
+        left = (c - x > dl) if strict_l else (c - x >= dl)
+        right = (x - c > dr) if strict_r else (x - c >= dr)
+        return pl.when(x < c).then(left).otherwise(right)
 
     tag = f"donut={dl:g}" if dl == dr else f"donut=({dl:g}, {dr:g})"
-    return _Variant(c, mask, expr, tag if label else "", d)
+    if closed != "none":
+        tag += f", closed={closed}"
+    return _Variant(c, mask, expr, tag if label else "", d, closed)
 
 
 def _finite(c):
@@ -470,7 +487,7 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
                 regularization: float = 1.0, scale: float = 1.0,
                 treatment: str | None = None, sharp_bandwidth: bool = False,
                 covariates: Sequence[str] | str | None = None,
-                donut=None,
+                donut=None, donut_closed: str = "none",
                 memory: str = "auto",
                 max_memory_gb: float | None = None, memory_reserve: float | None = None,
                 workdir: str | None = None, n_threads: int | None = None,
@@ -562,12 +579,20 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
         when they are balanced at the cutoff and can shorten the intervals.
         Collinear covariates are dropped with a warning.
     donut : float, (left, right) pair, or list of them, optional
-        A donut hole: the observations within this distance of the cutoff
-        are left out (on the left, x > cutoff - donut; on the right,
-        cutoff <= x < cutoff + donut, so a positive radius also drops
-        x = cutoff), and the whole fit, bandwidth selection included, runs
-        on the rest. A list gives one fit per radius, from one read (0 for
-        no hole), labeled ``[donut=...]``.
+        A donut hole (Cattaneo, Idrobo and Titiunik 2020, section 5.4): the
+        observations within this distance of the cutoff are left out, and
+        the whole fit, bandwidth selection included, runs on the rest. The
+        hole is the interval (cutoff - donut_left, cutoff + donut_right),
+        which holds x = cutoff, so a positive right radius drops it. A list
+        gives one fit per radius, from one read (0 for no hole), labeled
+        ``[donut=...]``.
+    donut_closed : {"none", "left", "right", "both"}, default "none"
+        Whether the hole's ends belong to it, as Polars' ``closed``: "none"
+        keeps the observations exactly at the radius (``|x - cutoff| >=
+        donut``, as Cattaneo, Idrobo and Titiunik do); "left", "right" or
+        "both" also drops those at cutoff - donut_left, at cutoff +
+        donut_right, or at both. It matters for a discrete running
+        variable. A radius of 0 drops nothing on its side.
     memory : {"auto", "rows", "by_value", "window"}
         How the data are held. "rows" reads and sorts the rows used, and
         fits on every row. "by_value" groups the rows by the value of the
@@ -612,6 +637,17 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
     -------
     RDResult, or RDMulti with several outcomes or bandwidths; a Profile with
     ``profile=True``.
+
+    References
+    ----------
+    Calonico, S., Cattaneo, M. D. and Titiunik, R. (2014). Robust
+    nonparametric confidence intervals for regression-discontinuity designs.
+    *Econometrica* 82(6), 2295-2326.
+
+    Cattaneo, M. D., Idrobo, N. and Titiunik, R. (2020). *A Practical
+    Introduction to Regression Discontinuity Designs: Foundations*.
+    Cambridge Elements: Quantitative and Computational Methods for Social
+    Science. Cambridge University Press. https://doi.org/10.1017/9781108684606
     """
     outcomes, running = _parse(fml)
     _PREPARED.clear()                     # a call that failed may have left some
@@ -630,7 +666,7 @@ def rd_estimate(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 
     if profile:
         return path
     donuts = _donuts(donut)
-    variants = [_donut_variant(o.cutoff, d, len(donuts) > 1) for d in donuts]
+    variants = [_donut_variant(o.cutoff, d, len(donuts) > 1, donut_closed) for d in donuts]
     fits = _fit_variants(data, running, outcomes, o, cluster, weights, treatment, covs, path,
                          max_memory_gb, memory_reserve, workdir, n_threads, grid,
                          bias_bandwidth, bandwidth_ratio, collapse, sharp_bandwidth, variants)
@@ -696,6 +732,7 @@ def _fit_variants(source, running, outcomes, o, cluster, weights, treatment, cov
             data.cleanup()
             for r in new:
                 r.donut = v.donut
+                r.donut_closed = v.donut_closed if v.donut is not None else None
                 if len(grid) > 1:
                     r.fml = f"{r.fml} [h={r.bandwidth[0]:.6g}]"
                 if v.tag:
@@ -1076,7 +1113,7 @@ def rd_bandwidth(fml: str, data, *, cutoff: float = 0.0, selector: str = "mserd"
                  restrict_bandwidth: bool = True, standardize: bool = True,
                  regularization: float = 1.0, treatment: str | None = None,
                  sharp_bandwidth: bool = False, covariates: Sequence[str] | str | None = None,
-                 donut=None,
+                 donut=None, donut_closed: str = "none",
                  memory: str = "auto",
                  max_memory_gb: float | None = None, memory_reserve: float | None = None,
                  workdir: str | None = None, n_threads: int | None = None,
@@ -1102,7 +1139,7 @@ def rd_bandwidth(fml: str, data, *, cutoff: float = 0.0, selector: str = "mserd"
         return path
     if isinstance(donut, list):
         raise ValueError("rd_bandwidth takes one donut: a radius or a (left, right) pair")
-    v = _donut_variant(o.cutoff, _donuts(donut)[0], False)
+    v = _donut_variant(o.cutoff, _donuts(donut)[0], False, donut_closed)
     with _threads(n_threads):
         window = _window_options(path, o, running, outcomes, cluster, treatment, covs,
                                  max_memory_gb, memory_reserve, None, workdir)

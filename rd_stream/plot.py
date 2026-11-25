@@ -281,6 +281,7 @@ class RDPlot:
     covariate_coef: np.ndarray | None = None
     memory: str = "rows"
     donut: tuple | None = None
+    donut_closed: str | None = None
     timings: dict = field(default_factory=dict)
 
     def plot(self, *, ax=None, ci: bool = False, shade: bool = False, title: str | None = None,
@@ -431,6 +432,7 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
             bandwidth=None, weights: str | None = None,
             covariates: Sequence[str] | str | None = None, covariates_at: str = "mean",
             support=None, mass_points: str = "adjust", ci: float = 95.0, donut=None,
+            donut_closed: str = "none",
             memory: str = "auto", max_memory_gb: float | None = None,
             memory_reserve: float | None = None, workdir: str | None = None,
             n_threads: int | None = None, profile: bool = False) -> RDPlot | RDPlotMulti:
@@ -483,6 +485,8 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
     donut : float or (left, right) pair, optional
         A donut hole, as in `rd_estimate`: the observations within this
         distance of the cutoff are left out of the bins and the fits.
+    donut_closed : {"none", "left", "right", "both"}, default "none"
+        As in `rd_estimate`.
     memory, max_memory_gb, memory_reserve, workdir, n_threads, profile
         As in `rd_estimate`. The by-value path takes the "pr" bin methods
         only. The window path writes the rows to slabs on disk and reads them
@@ -539,7 +543,7 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
         return path
     if isinstance(donut, list):
         raise ValueError("rd_plot takes one donut: a radius or a (left, right) pair")
-    v = api._donut_variant(c, api._donuts(donut)[0], False)
+    v = api._donut_variant(c, api._donuts(donut)[0], False, donut_closed)
     with api._threads(n_threads):
         if path == "window":
             from ._plot_slabs import slab_plot_sides
@@ -571,6 +575,7 @@ def rd_plot(fml: str, data, *, cutoff: float = 0.0, polynomial_order: int = 4,
                                kernel, h_given, covs, covariates_at, support, mass_points, ci)
                 out.memory = path
                 out.donut = v.donut
+                out.donut_closed = v.donut_closed if v.donut is not None else None
                 out.timings = dict(read_sort_s=read_s, prepare_s=t2 - t1,
                                    plot_s=time.perf_counter() - t2)
                 plots.append(out)

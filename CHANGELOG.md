@@ -11,7 +11,8 @@
   window.
 - `rd_bandwidth`: rdbwselect's bandwidths, one selector or all ten.
 - `donut=` on `rd_estimate`, `rd_bandwidth` and `rd_plot`: donut holes, one radius, a
-  left/right pair, or a list of them for `rd_estimate` (one fit each, from one read).
+  left/right pair, or a list of them for `rd_estimate` (one fit each, from one read);
+  `donut_closed=` says whether the observations exactly at the radius are dropped too.
 - `rd_placebo`: estimates at placebo cutoffs, each on the observations on its side of
   the true cutoff, as a table and a figure.
 - `etable(fits, rows=...)` and `RDResult.with_rows(...)`: which of the three rows to report,

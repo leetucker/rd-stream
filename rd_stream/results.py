@@ -74,6 +74,8 @@ class RDResult(RegressionResult):
     donut : (left, right) or None
         The donut hole's radii, when observations near the cutoff were left
         out.
+    donut_closed : str or None
+        Which ends of the hole were left out too (see `rd_estimate`).
     collapsed : bool
         Whether the fit ran on one row per distinct value of the running
         variable (which gives the same results; see `memory`).
@@ -103,6 +105,7 @@ class RDResult(RegressionResult):
     treatment: str | None = None
     first_stage: dict | None = None
     donut: tuple | None = None
+    donut_closed: str | None = None
     timings: dict = field(default_factory=dict)
     # per row, the value its test and interval are about (None: the estimate itself)
     inference_center: np.ndarray | None = field(default=None, repr=False)
@@ -191,8 +194,10 @@ class RDResult(RegressionResult):
             lines.append(f"fuzzy: take-up {self.treatment}; first-stage jump {fs['tau_cl']:.6g} "
                          f"(se {fs['se_cl']:.4g}; robust se {fs['se_rb']:.4g})")
         if self.donut is not None:
+            ends = {"none": "", "left": "; its left end too", "right": "; its right end too",
+                    "both": "; both ends too"}[self.donut_closed or "none"]
             lines.append(f"donut hole: {self.donut[0]:g} left, {self.donut[1]:g} right of the "
-                         f"cutoff left out")
+                         f"cutoff left out{ends}")
         if self.n_clusters:
             lines.append(f"clusters: {dict(self.n_clusters)}")
         if self.weights:
@@ -210,7 +215,8 @@ class RDResult(RegressionResult):
                    n_bias_bandwidth=list(self.n_bias_bandwidth),
                    n_distinct=list(self.n_distinct), collapsed=self.collapsed, memory=self.memory,
                    treatment=self.treatment, first_stage=self.first_stage,
-                   donut=None if self.donut is None else list(self.donut))
+                   donut=None if self.donut is None else list(self.donut),
+                   donut_closed=self.donut_closed)
         return out
 
     def _pyfixest_attrs(self) -> dict:

@@ -4,7 +4,7 @@ discontinuity.
 At a placebo cutoff below the true one, only the observations below the
 true cutoff are used, and above it only those above, so that the true
 discontinuity cannot enter a placebo estimate (Cattaneo, Idrobo and
-Titiunik 2020, section 5.2). Each placebo fit is otherwise an ordinary
+Titiunik 2020, section 5.3). Each placebo fit is otherwise an ordinary
 `rd_estimate` fit at that cutoff, with its own bandwidth. The rows and
 by-value paths read the data once for every cutoff; the window path reads
 it once per cutoff.
@@ -113,9 +113,10 @@ def rd_placebo(fml: str, data, placebo_cutoffs: Sequence[float], *, cutoff: floa
 
     A placebo cutoff below `cutoff` is fitted on the observations below it
     only, and one above on those above it only (x >= cutoff), so that the
-    true discontinuity cannot leak into a placebo estimate. Each fit selects
-    its own bandwidth unless one is given. With `include_cutoff`, the
-    estimate at the true cutoff, on every observation, is included too.
+    true discontinuity cannot leak into a placebo estimate, as Cattaneo,
+    Idrobo and Titiunik (2020, section 5.3) recommend. Each fit selects its
+    own bandwidth unless one is given. With `include_cutoff`, the estimate
+    at the true cutoff, on every observation, is included too.
 
     Parameters
     ----------
@@ -131,7 +132,8 @@ def rd_placebo(fml: str, data, placebo_cutoffs: Sequence[float], *, cutoff: floa
     include_cutoff : bool, default True
         Also estimate at the true cutoff.
     bandwidth : str or float or (left, right) pair, default "mserd"
-        A selector (each fit selects its own) or a bandwidth for every fit.
+        A selector, with which each cutoff's fit selects its own bandwidth,
+        or a number (or left/right pair), which every fit then shares.
     The other options are `rd_estimate`'s.
 
     Returns
@@ -139,6 +141,13 @@ def rd_placebo(fml: str, data, placebo_cutoffs: Sequence[float], *, cutoff: floa
     PlaceboResult
         Its `table` has one row per outcome and cutoff; `plot()` draws the
         estimates and their robust intervals against the cutoff.
+
+    References
+    ----------
+    Cattaneo, M. D., Idrobo, N. and Titiunik, R. (2020). *A Practical
+    Introduction to Regression Discontinuity Designs: Foundations*.
+    Cambridge Elements: Quantitative and Computational Methods for Social
+    Science. Cambridge University Press. https://doi.org/10.1017/9781108684606
     """
     outcomes, running = api._parse(fml)
     api._PREPARED.clear()

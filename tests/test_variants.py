@@ -129,3 +129,32 @@ def test_constant_take_up_is_perfect_compliance(x, memory):
     a = rd.rd_estimate(f"y ~ {x}", df, treatment="t", memory=memory)
     b = rd.rd_estimate(f"y ~ {x}", df, treatment="t", memory=memory, sharp_bandwidth=True)
     np.testing.assert_allclose(a.bandwidth, b.bandwidth, rtol=1e-12)
+
+
+@pytest.mark.parametrize("memory", ["rows", "by_value", "window"])
+@pytest.mark.parametrize("closed", ["none", "left", "right", "both"])
+def test_donut_closed_ends(closed, memory):
+    # xd is on a grid of 1/40: the rows at the radius (0.05) are kept, or dropped at
+    # the hole's closed ends, as in Polars' is_between
+    df = pl.read_parquet(SIM)
+    d, x = 0.05, pl.col("xd")
+    left = (-x > d) if closed in ("left", "both") else (-x >= d)
+    right = (x > d) if closed in ("right", "both") else (x >= d)
+    keep = df.filter(pl.when(x < 0).then(left).otherwise(right))
+    assert df.filter(x.abs() == d).height > 0
+    a = rd.rd_estimate("y ~ xd", df, donut=d, donut_closed=closed, memory=memory)
+    b = rd.rd_estimate("y ~ xd", keep, memory=memory)
+    _same(a, b, 1e-12 if memory != "window" else 1e-9)
+    assert a.donut_closed == closed
+    p = rd.rd_plot("y ~ xd", df, donut=d, donut_closed=closed, memory="rows")
+    assert p.n == rd.rd_plot("y ~ xd", keep, memory="rows").n
+
+
+def test_donut_closed_errors_and_zero_radius():
+    with pytest.raises(ValueError, match="donut_closed"):
+        rd.rd_estimate("y ~ x", SIM, donut=0.01, donut_closed="open")
+    df = pl.read_parquet(SIM)
+    # a zero radius drops nothing on its side, closed or not: x = cutoff stays
+    a = rd.rd_estimate("y ~ xd", df, donut=(0.05, 0.0), donut_closed="both")
+    b = rd.rd_estimate("y ~ xd", df.filter((pl.col("xd") >= 0) | (pl.col("xd") < -0.05)))
+    _same(a, b, 1e-12)
