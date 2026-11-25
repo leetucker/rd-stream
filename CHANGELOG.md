@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-24)
 
 - `rd_estimate`: sharp and fuzzy regression discontinuity, regression kinks and covariate
   adjustment, with rdrobust's estimates, bandwidth selectors and variances (nearest-neighbor,
