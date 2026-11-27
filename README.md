@@ -34,7 +34,7 @@ rd_placebo("y ~ x", data, placebo_cutoffs=[-0.2, -0.1, 0.1, 0.2]).plot()
 rd_plot("vote ~ margin", "senate.parquet").plot(ci=True)
 ```
 
-**Version 0.1.0.**
+**Version 0.1.1.**
 
 Documentation, with examples on the U.S. Senate elections data, is at
 <https://leetucker.github.io/rd-stream/>.

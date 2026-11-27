@@ -19,7 +19,7 @@ from .placebo import PlaceboResult, rd_placebo  # noqa: E402
 from .plot import RDPlot, RDPlotMulti, rd_plot  # noqa: E402
 from .results import RDMulti, RDResult, etable  # noqa: E402
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = ["BandwidthResult", "PlaceboResult", "RDMulti", "RDPlot", "RDPlotMulti", "RDResult",
            "etable", "rd_bandwidth", "rd_estimate", "rd_placebo", "rd_plot"]

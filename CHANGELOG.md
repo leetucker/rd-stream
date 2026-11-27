@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (2026-11-27)
+
+- Supports Python 3.15, and is tested on it.
+
 ## 0.1.0 (2026-11-24)
 
 - `rd_estimate`: sharp and fuzzy regression discontinuity, regression kinks and covariate
